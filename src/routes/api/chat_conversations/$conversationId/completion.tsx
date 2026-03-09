@@ -11,7 +11,7 @@ export const Route = createFileRoute(
       POST: async ({ request }) => {
         const body = (await request.json()) as ChatCompletionRequest
         const encoder = new TextEncoder()
-        const reply = buildMockReply(body.prompt, body.trigger)
+        const reply = buildMockReply(body)
         const assistantParentUuid =
           body.trigger === 'regenerate'
             ? body.parent_message_uuid
@@ -208,13 +208,14 @@ function chunkText(text: string) {
   return tokens?.length ? tokens : [text]
 }
 
-function buildMockReply(
-  prompt: string,
-  trigger: ChatCompletionRequest['trigger'],
-) {
+function buildMockReply(body: ChatCompletionRequest) {
+  const prompt = body.prompt.trim()
+
   return [
-    trigger === 'regenerate'
-      ? `Regenerated response to: ${prompt}`
+    body.trigger === 'regenerate'
+      ? prompt
+        ? `Regenerated response to: ${prompt}`
+        : `Regenerated response for user message ${body.parent_message_uuid}`
       : `Mock response to: ${prompt}`,
     '',
     'This is a longer streaming reply from the local mock server.',

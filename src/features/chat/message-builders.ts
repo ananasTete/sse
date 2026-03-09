@@ -8,12 +8,14 @@ import type {
 export function createUserMessage({
   attachments,
   files,
+  model,
   parentMessageUuid,
   prompt,
   uuid,
 }: {
   attachments: unknown[]
   files: unknown[]
+  model: string
   parentMessageUuid: string
   prompt: string
   uuid: string
@@ -33,6 +35,7 @@ export function createUserMessage({
     created_at: timestamp,
     files,
     metadata: {},
+    model,
     parent_message_uuid: parentMessageUuid,
     role: 'user',
     stop_reason: null,
@@ -52,6 +55,7 @@ export function createAssistantMessage(
     created_at: timestamp,
     files: [],
     metadata: {},
+    model: event.message.model,
     parent_message_uuid: event.message.parent_uuid,
     role: 'assistant',
     stop_reason: event.message.stop_reason,

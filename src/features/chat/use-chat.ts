@@ -20,16 +20,29 @@ import { toChatTimestamp } from './time'
 import type {
   ChatCompletionRequest,
   ChatStatus,
+  EditUserMessageInput,
+  RegenerateMessageInput,
   SendMessageInput,
 } from './types'
 
 export interface UseChatResult {
-  getBranchState: (assistantMessageUuid: string) => string[]
+  getBranchState: (parentMessageUuid: string) => string[]
   input: string
   messages: ReturnType<typeof selectCurrentBranchMessages>
   onInputChange: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>
-  regenerate: (assistantMessageUuid: string) => Promise<void>
-  selectBranch: (assistantMessageUuid: string) => void
+  regenerate: (
+    assistantMessageUuid: string,
+    input?: RegenerateMessageInput,
+  ) => Promise<void>
+  regenerateUserMessage: (
+    userMessageUuid: string,
+    input?: RegenerateMessageInput,
+  ) => Promise<void>
+  editUserMessage: (
+    userMessageUuid: string,
+    input: EditUserMessageInput,
+  ) => Promise<void>
+  selectBranch: (messageUuid: string) => void
   sendMessage: (message: SendMessageInput) => Promise<void>
   status: ChatStatus
   stop: () => void
@@ -38,10 +51,6 @@ export interface UseChatResult {
 interface ActiveRequest {
   assistantMessageUuid: string
   controller: AbortController
-}
-
-function getMessageText(messageContent: { text: string }[]) {
-  return messageContent.map((block) => block.text).join('')
 }
 
 export function useChat(): UseChatResult {
@@ -111,9 +120,12 @@ export function useChat(): UseChatResult {
   const sendMessage = async ({
     attachments = [],
     files = [],
+    model,
+    parentMessageUuid: inputParentMessageUuid,
     prompt,
   }: SendMessageInput) => {
     const normalizedPrompt = prompt.trim()
+    const messageModel = model ?? DEFAULT_MODEL
 
     if (!normalizedPrompt) {
       throw new Error('Prompt cannot be empty.')
@@ -124,12 +136,15 @@ export function useChat(): UseChatResult {
     const userMessageUuid = generateTimeOrderedUuid()
     const assistantMessageUuid = generateTimeOrderedUuid()
     const parentMessageUuid =
-      state.current_leaf_message_uuid ?? ROOT_PARENT_MESSAGE_UUID
+      inputParentMessageUuid ??
+      state.current_leaf_message_uuid ??
+      ROOT_PARENT_MESSAGE_UUID
 
     dispatch({
       message: createUserMessage({
         attachments,
         files,
+        model: messageModel,
         parentMessageUuid,
         prompt: normalizedPrompt,
         uuid: userMessageUuid,
@@ -148,7 +163,7 @@ export function useChat(): UseChatResult {
         {
           attachments,
           files,
-          model: DEFAULT_MODEL,
+          model: messageModel,
           parent_message_uuid: parentMessageUuid,
           prompt: normalizedPrompt,
           trigger: 'submit',
@@ -180,20 +195,16 @@ export function useChat(): UseChatResult {
     }
   }
 
-  const regenerate = async (assistantMessageUuid: string) => {
+  const regenerateUserMessage = async (
+    userMessageUuid: string,
+    input?: RegenerateMessageInput,
+  ) => {
     ensureRequestIsIdle()
 
-    const assistantMessage = getMessageByUuid(state, assistantMessageUuid)
-
-    if (!assistantMessage || assistantMessage.role !== 'assistant') {
-      throw new Error('Only assistant messages can be regenerated.')
-    }
-
-    const parentMessageUuid = assistantMessage.parent_message_uuid
-    const parentMessage = getMessageByUuid(state, parentMessageUuid)
+    const parentMessage = getMessageByUuid(state, userMessageUuid)
 
     if (!parentMessage || parentMessage.role !== 'user') {
-      throw new Error('Regenerate requires a parent user message.')
+      throw new Error('Regenerate requires a user message.')
     }
 
     const nextAssistantMessageUuid = generateTimeOrderedUuid()
@@ -213,13 +224,12 @@ export function useChat(): UseChatResult {
         {
           attachments: parentMessage.attachments,
           files: parentMessage.files,
-          model: DEFAULT_MODEL,
-          parent_message_uuid: parentMessageUuid,
-          prompt: getMessageText(parentMessage.content),
+          model: input?.model ?? parentMessage.model ?? DEFAULT_MODEL,
+          parent_message_uuid: parentMessage.uuid,
+          prompt: input?.prompt ?? '',
           trigger: 'regenerate',
           turn_message_uuids: {
             assistant_message_uuid: nextAssistantMessageUuid,
-            user_message_uuid: parentMessage.uuid,
           },
         },
         abortController,
@@ -245,24 +255,61 @@ export function useChat(): UseChatResult {
     }
   }
 
-  const getBranchState = (assistantMessageUuid: string) =>
-    selectBranchChildUuids(state, assistantMessageUuid)
+  const editUserMessage = async (
+    userMessageUuid: string,
+    input: EditUserMessageInput,
+  ) => {
+    const userMessage = getMessageByUuid(state, userMessageUuid)
 
-  const selectBranch = (assistantMessageUuid: string) => {
+    if (!userMessage || userMessage.role !== 'user') {
+      throw new Error('Edit requires a user message.')
+    }
+
+    await sendMessage({
+      attachments: userMessage.attachments,
+      files: userMessage.files,
+      model: input.model,
+      parentMessageUuid: userMessage.parent_message_uuid,
+      prompt: input.prompt,
+    })
+  }
+
+  const regenerate = async (
+    assistantMessageUuid: string,
+    input?: RegenerateMessageInput,
+  ) => {
+    const assistantMessage = getMessageByUuid(state, assistantMessageUuid)
+
+    if (!assistantMessage || assistantMessage.role !== 'assistant') {
+      throw new Error('Only assistant messages can be regenerated.')
+    }
+
+    await regenerateUserMessage(assistantMessage.parent_message_uuid, {
+      ...input,
+      model: input?.model ?? assistantMessage.model,
+    })
+  }
+
+  const getBranchState = (parentMessageUuid: string) =>
+    selectBranchChildUuids(state, parentMessageUuid)
+
+  const selectBranch = (messageUuid: string) => {
     ensureRequestIsIdle()
 
     dispatch({
-      messageUuid: assistantMessageUuid,
+      messageUuid,
       type: 'branch-selected',
     })
   }
 
   return {
     getBranchState,
+    editUserMessage,
     input: state.input,
     messages,
     onInputChange,
     regenerate,
+    regenerateUserMessage,
     selectBranch,
     sendMessage,
     status: state.status,

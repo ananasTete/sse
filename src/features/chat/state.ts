@@ -82,7 +82,7 @@ export const initialChatState: ChatState = {
   active_child_uuid_by_parent_uuid: {}, // 有子分支的父节点和 active 子节点的 map，用来在切换会之前的分之后保持其后续分支选择
   current_leaf_message_uuid: null, // 当前分支下最后一个节点的 id，可以根据这个节点的 parent_id 继续向上找到整条分支节点数组
   input: '',
-  mapping: { // 因为需要支持分支，内部维护一个扁平树结构
+  mapping: { // 因为需要支持分支，内部维护一个扁平树结构。不需要分支，直接维护一个 message 数组即可
     [ROOT_PARENT_MESSAGE_UUID]: {
       child_uuids: [],
       message: null,
@@ -194,15 +194,8 @@ export function selectCurrentBranchMessages(state: ChatState) {
   return messages.reverse()
 }
 
-export function getBranchState(state: ChatState, assistantMessageUuid: string) {
-  const assistantNode = state.mapping[assistantMessageUuid]
-  const parentUuid = assistantNode?.parent_uuid
-
-  if (!parentUuid) {
-    return []
-  }
-
-  return [...(state.mapping[parentUuid]?.child_uuids ?? [])]
+export function getBranchState(state: ChatState, parentMessageUuid: string) {
+  return [...(state.mapping[parentMessageUuid]?.child_uuids ?? [])]
 }
 
 export function getMessageByUuid(state: ChatState, messageUuid: string) {

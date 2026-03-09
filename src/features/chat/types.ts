@@ -41,6 +41,7 @@ export interface ChatMessage {
   files: unknown[]
   index: number
   metadata: ChatMessageMetadata
+  model: string
   parent_message_uuid: string
   role: ChatRole
   stop_reason: ChatStopReason
@@ -53,23 +54,53 @@ export type NewChatMessage = Omit<ChatMessage, 'index'>
 export interface SendMessageInput {
   attachments?: unknown[]
   files?: unknown[]
+  model?: string
+  parentMessageUuid?: string
   prompt: string
 }
 
-export interface TurnMessageUuids {
+export interface EditUserMessageInput {
+  model: string
+  prompt: string
+}
+
+export interface RegenerateMessageInput {
+  model?: string
+  prompt?: string
+}
+
+export interface SubmitTurnMessageUuids {
   assistant_message_uuid: string
   user_message_uuid: string
 }
 
-export interface ChatCompletionRequest {
+export interface RegenerateTurnMessageUuids {
+  assistant_message_uuid: string
+}
+
+export interface SubmitChatCompletionRequest {
   attachments: unknown[]
   files: unknown[]
   model: string
   parent_message_uuid: string
   prompt: string
-  trigger: ChatTrigger
-  turn_message_uuids: TurnMessageUuids
+  trigger: 'submit'
+  turn_message_uuids: SubmitTurnMessageUuids
 }
+
+export interface RegenerateChatCompletionRequest {
+  attachments: unknown[]
+  files: unknown[]
+  model: string
+  parent_message_uuid: string
+  prompt: string
+  trigger: 'regenerate'
+  turn_message_uuids: RegenerateTurnMessageUuids
+}
+
+export type ChatCompletionRequest =
+  | RegenerateChatCompletionRequest
+  | SubmitChatCompletionRequest
 
 export interface ChatCompletionMessageStartEvent {
   message: {

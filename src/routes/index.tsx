@@ -1,8 +1,28 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ArrowUp, ChevronLeft, ChevronRight, RotateCcw, Square } from 'lucide-react'
+import {
+  ArrowUp,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  RotateCcw,
+  Square,
+  X,
+} from 'lucide-react'
 import type { FormEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import {
+  AVAILABLE_MODELS,
+  DEFAULT_MODEL,
+} from '#/features/chat/constants'
 import { useChat } from '#/features/chat/use-chat'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#/components/ui/select'
 import { cn } from '#/lib/utils'
 
 export const Route = createFileRoute('/')({ component: App })
@@ -13,17 +33,22 @@ function getMessageText(text: string) {
 
 function App() {
   const {
+    editUserMessage,
     getBranchState,
     input,
     messages,
     onInputChange,
     regenerate,
+    regenerateUserMessage,
     selectBranch,
     sendMessage,
     status,
     stop,
   } = useChat()
+  const [editingMessageUuid, setEditingMessageUuid] = useState<string | null>(null)
+  const [editingPrompt, setEditingPrompt] = useState('')
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
   const isBusy = status === 'streaming' || status === 'submitted'
   const statusLabel =
@@ -48,12 +73,28 @@ function App() {
     })
   }, [messages, status])
 
+  useEffect(() => {
+    if (!editingMessageUuid) {
+      return
+    }
+
+    const hasEditingMessage = messages.some(
+      (message) => message.uuid === editingMessageUuid,
+    )
+
+    if (!hasEditingMessage) {
+      setEditingMessageUuid(null)
+      setEditingPrompt('')
+    }
+  }, [editingMessageUuid, messages])
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setFeedback(null)
 
     try {
       await sendMessage({
+        model: selectedModel,
         prompt: input,
       })
     } catch (error) {
@@ -80,6 +121,18 @@ function App() {
     }
   }
 
+  const handleRegenerateUserMessage = async (userMessageUuid: string) => {
+    setFeedback(null)
+
+    try {
+      await regenerateUserMessage(userMessageUuid)
+    } catch (error) {
+      setFeedback(
+        error instanceof Error ? error.message : 'Chat request failed.',
+      )
+    }
+  }
+
   const handleBranchSelect = (assistantMessageUuid: string) => {
     setFeedback(null)
 
@@ -88,6 +141,34 @@ function App() {
     } catch (error) {
       setFeedback(
         error instanceof Error ? error.message : 'Branch selection failed.',
+      )
+    }
+  }
+
+  const handleStartEdit = (messageUuid: string, prompt: string) => {
+    setFeedback(null)
+    setEditingMessageUuid(messageUuid)
+    setEditingPrompt(prompt)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingMessageUuid(null)
+    setEditingPrompt('')
+  }
+
+  const handleConfirmEdit = async (message: (typeof messages)[number]) => {
+    setFeedback(null)
+
+    try {
+      await editUserMessage(message.uuid, {
+        model: selectedModel,
+        prompt: editingPrompt,
+      })
+      setEditingMessageUuid(null)
+      setEditingPrompt('')
+    } catch (error) {
+      setFeedback(
+        error instanceof Error ? error.message : 'Chat request failed.',
       )
     }
   }
@@ -109,11 +190,16 @@ function App() {
             ref={transcriptRef}>
             {messages.length ? (
               messages.map((message, index) => {
-                const text = getMessageText(
-                  message.content.map((block) => block.text).join(''),
-                )
+                const rawText = message.content.map((block) => block.text).join('')
+                const text = getMessageText(rawText)
+                const isUser = message.role === 'user'
                 const isAssistant = message.role === 'assistant'
-                const branchChildUuids = isAssistant ? getBranchState(message.uuid) : []
+                const isEditingUserMessage =
+                  isUser && editingMessageUuid === message.uuid
+                const branchChildUuids =
+                  isAssistant || isUser
+                    ? getBranchState(message.parent_message_uuid)
+                    : []
                 const branchIndex = branchChildUuids.indexOf(message.uuid)
                 const previousBranchUuid =
                   branchIndex > 0 ? branchChildUuids[branchIndex - 1] : null
@@ -136,7 +222,8 @@ function App() {
                     key={message.uuid}>
                     <div
                       className={cn(
-                        'max-w-[min(42rem,92%)] border px-4 py-3',
+                        'border px-4 py-3',
+                        isEditingUserMessage ? 'w-full' : 'max-w-[min(42rem,92%)]',
                         isAssistant
                           ? 'border-[var(--line)] bg-[var(--surface-strong)]'
                           : 'border-[var(--line)] bg-[rgba(47,106,74,0.08)]',
@@ -153,15 +240,28 @@ function App() {
                         ) : null}
                       </div>
 
-                      <p className="mt-2 whitespace-pre-wrap text-[0.95rem] leading-7 text-[var(--sea-ink)]">
-                        {text}
-                        {isStreamingMessage ? (
-                          <span className="ml-1 inline-block h-4 w-px translate-y-1 bg-[var(--sea-ink-soft)] align-baseline animate-pulse" />
-                        ) : null}
-                      </p>
+                      {isEditingUserMessage ? (
+                        <div className="mt-3">
+                          <textarea
+                            className="min-h-28 w-full resize-y border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[0.95rem] leading-7 text-[var(--sea-ink)] outline-none"
+                            onChange={(event) => {
+                              setEditingPrompt(event.target.value)
+                            }}
+                            value={editingPrompt}
+                          />
+                        </div>
+                      ) : (
+                        <p className="mt-2 whitespace-pre-wrap text-[0.95rem] leading-7 text-[var(--sea-ink)]">
+                          {text}
+                          {isStreamingMessage ? (
+                            <span className="ml-1 inline-block h-4 w-px translate-y-1 bg-[var(--sea-ink-soft)] align-baseline animate-pulse" />
+                          ) : null}
+                        </p>
+                      )}
 
                       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[0.68rem] leading-5 text-[var(--sea-ink-soft)]">
                         <span>index {message.index}</span>
+                        <span>model {message.model}</span>
                         <span className="max-w-full break-all">
                           id {message.uuid}
                         </span>
@@ -169,6 +269,98 @@ function App() {
                           parent {message.parent_message_uuid}
                         </span>
                       </div>
+
+                      {isUser ? (
+                        <div className="mt-3 flex items-center gap-3 border-t border-[var(--line)] pt-3 text-[0.72rem] text-[var(--sea-ink-soft)]">
+                          {isEditingUserMessage ? (
+                            <>
+                              <button
+                                className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={isBusy}
+                                onClick={handleCancelEdit}
+                                type="button">
+                                <X className="size-3.5" />
+                                Cancel
+                              </button>
+
+                              <button
+                                className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={isBusy || !editingPrompt.trim()}
+                                onClick={() => {
+                                  void handleConfirmEdit(message)
+                                }}
+                                type="button">
+                                <Check className="size-3.5" />
+                                Confirm
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={isBusy}
+                                onClick={() => {
+                                  handleStartEdit(message.uuid, rawText)
+                                }}
+                                type="button">
+                                <Pencil className="size-3.5" />
+                                Edit
+                              </button>
+
+                              <button
+                                className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={isBusy}
+                                onClick={() => {
+                                  void handleRegenerateUserMessage(message.uuid)
+                                }}
+                                type="button">
+                                <RotateCcw className="size-3.5" />
+                                Regenerate
+                              </button>
+                            </>
+                          )}
+
+                          {branchChildUuids.length > 1 ? (
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-[var(--line)] hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-35"
+                                disabled={
+                                  !previousBranchUuid || isBusy || isEditingUserMessage
+                                }
+                                onClick={() => {
+                                  if (!previousBranchUuid) {
+                                    return
+                                  }
+
+                                  handleBranchSelect(previousBranchUuid)
+                                }}
+                                type="button">
+                                <ChevronLeft className="size-3.5" />
+                              </button>
+
+                              <span>
+                                {branchIndex + 1}/{branchChildUuids.length}
+                              </span>
+
+                              <button
+                                className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-[var(--line)] hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-35"
+                                disabled={
+                                  !nextBranchUuid || isBusy || isEditingUserMessage
+                                }
+                                onClick={() => {
+                                  if (!nextBranchUuid) {
+                                    return
+                                  }
+
+                                  handleBranchSelect(nextBranchUuid)
+                                }}
+                                type="button">
+                                <ChevronRight className="size-3.5" />
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       {isAssistant ? (
                         <div className="mt-3 flex items-center gap-3 border-t border-[var(--line)] pt-3 text-[0.72rem] text-[var(--sea-ink-soft)]">
@@ -241,15 +433,39 @@ function App() {
                   value={input}
                 />
 
-                <div className="flex flex-col gap-3 border-t border-[var(--line)] px-1 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-sm text-[var(--sea-ink-soft)]">
-                    {feedback ? (
-                      <span className="text-[rgb(153,27,27)]">{feedback}</span>
-                    ) : isBusy ? (
-                      'Streaming response.'
-                    ) : (
-                      'Ready.'
-                    )}
+                <div className="flex flex-col gap-3 border-t border-[var(--line)] px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="px-2 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
+                        Model
+                      </span>
+
+                      <Select
+                        disabled={isBusy}
+                        onValueChange={setSelectedModel}
+                        value={selectedModel}>
+                        <SelectTrigger className="h-10 min-w-64 border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] shadow-none">
+                          <SelectValue placeholder="Select a model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {AVAILABLE_MODELS.map((model) => (
+                            <SelectItem key={model.value} value={model.value}>
+                              {model.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="px-2 text-sm text-[var(--sea-ink-soft)]">
+                      {feedback ? (
+                        <span className="text-[rgb(153,27,27)]">{feedback}</span>
+                      ) : isBusy ? (
+                        'Streaming response.'
+                      ) : (
+                        'Ready.'
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 self-end sm:self-auto">

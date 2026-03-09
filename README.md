@@ -4,11 +4,18 @@
 
 ## 1. 范围
 
-- 当前实现单会话聊天，并支持 assistant 重新生成与分支切换。
+- 当前实现单会话聊天，支持：
+  - 普通发送
+  - 停止生成
+  - assistant 重新生成
+  - user 消息侧重新生成入口
+  - user 消息编辑并生成新分支
+  - user / assistant 两侧分支切换
+- 首页输入区支持用 shadcn `Select` 切换本次提交使用的模型。
 - `messages` 对外仍然是数组，但内部真实状态已经不是线性数组，而是消息树。
 - 当前项目是 TanStack Start。
 - 当前不直连外部 `claude.ai`，而是在项目内提供 mock SSE 接口。
-- hook 参数暂不开放，请求 API、模型、conversation id 先在 hook 内部写死。
+- 请求 API 和 conversation id 仍然在 hook 内部固定；模型改为由首页输入区选择后随请求发送。
 
 ## 2. useChat 对外 API
 
@@ -16,11 +23,13 @@
 
 ```ts
 {
+  editUserMessage,
   getBranchState,
   messages,
   input,
   onInputChange,
   regenerate,
+  regenerateUserMessage,
   selectBranch,
   sendMessage,
   status,
@@ -36,6 +45,7 @@ interface Message {
   index: number;
   content: ContentType[];
   role: "user" | "system" | "assistant";
+  model: string;
   created_at: string;
   updated_at: string;
   stop_reason: "end_turn" | "stop_sequence" | "user_canceled" | null;
@@ -83,6 +93,7 @@ interface MessageLimit {
 - 例如：`user = 0`、`assistant = 1`、同一 user 下重新生成出的 `assistant = 2`、下一条 user 再是 `3`。
 - 用户消息的 `content` 当前只支持单个文本块。
 - assistant 消息在流式生成期间允许 `stop_reason = null`。
+- `model` 直接挂在消息顶层字段上，user 和 assistant 都保留。
 - `message_limit` 落到 assistant 消息的 `metadata.message_limit` 中。
 
 ### 2.2 input / onInputChange
@@ -99,6 +110,8 @@ interface SendMessageInput {
   prompt: string;
   attachments?: unknown[];
   files?: unknown[];
+  model?: string;
+  parentMessageUuid?: string;
 }
 ```
 
@@ -107,41 +120,90 @@ interface SendMessageInput {
 - `sendMessage` 使用对象入参，便于后续扩展。
 - `prompt` 会先做 `trim()`。
 - `prompt` 为空时直接抛错。
+- `parentMessageUuid` 可选：
+  - 不传时，默认挂到当前分支的 `current_leaf_message_uuid` 下。
+  - 传入时，在指定父节点下创建新的 user message。
+- `model` 不传时回退默认模型；传入时会同时写进本地 user message 和请求体。
+- 首页主输入框会调用 `sendMessage({ prompt, model })`。
+- `sendMessage` 是底层 primitive；“编辑用户消息”会再包一层更明确的 `editUserMessage(...)`。
 - 当 `status` 为 `submitted` 或 `streaming` 时再次调用 `sendMessage`，直接抛错。
 - 当前版本不做排队，也不做“自动中断上一条再发送下一条”。
 - `sendMessage` 成功返回表示本轮流已经完整消费到 `message_stop`。
 
-### 2.4 regenerate
+### 2.4 regenerateUserMessage
 
 ```ts
-type regenerate = (assistantMessageUuid: string) => Promise<void>;
+type regenerateUserMessage = (
+  userMessageUuid: string,
+  input?: RegenerateMessageInput
+) => Promise<void>;
+```
+
+约束：
+
+- `regenerateUserMessage` 只能对 user 消息调用。
+- 会复用该 user 消息的 `attachments` 和 `files`。
+- 重新生成时不会创建新的 user 消息。
+- 新 assistant 消息的 `parent_message_uuid` 指向该 user 消息本身。
+- 请求体中的 `trigger` 为 `"regenerate"`。
+- `prompt` 允许为空字符串；服务端应优先基于 `parent_message_uuid` 回溯原 user 消息。
+- 当 `status` 为 `submitted` 或 `streaming` 时调用，直接抛错。
+
+### 2.5 regenerate
+
+```ts
+type regenerate = (
+  assistantMessageUuid: string,
+  input?: RegenerateMessageInput
+) => Promise<void>;
 ```
 
 约束：
 
 - `regenerate` 只能对 assistant 消息调用。
-- `regenerate` 会复用目标 assistant 的父 user 消息。
-- 重新生成时不会创建新的 user 消息。
-- 新 assistant 消息的 `parent_message_uuid` 与旧 assistant 保持一致。
-- 请求体中的 `trigger` 为 `"regenerate"`。
-- 当 `status` 为 `submitted` 或 `streaming` 时调用 `regenerate`，直接抛错。
+- 它会先解析出 assistant 的父 user，再复用 `regenerateUserMessage(...)`。
+- 因此 user 消息下方和 assistant 消息下方的重新生成入口，效果完全一致。
 
-### 2.5 getBranchState / selectBranch
+### 2.6 editUserMessage
 
 ```ts
-type getBranchState = (assistantMessageUuid: string) => string[];
-type selectBranch = (assistantMessageUuid: string) => void;
+type editUserMessage = (
+  userMessageUuid: string,
+  input: {
+    model: string;
+    prompt: string;
+  }
+) => Promise<void>;
 ```
 
 约束：
 
-- `getBranchState(assistantMessageUuid)` 返回该 assistant 所在父节点下的全部 `child_uuids`。
-- `selectBranch(assistantMessageUuid)` 传入目标 assistant 分支的 uuid。
-- `selectBranch` 会把该 assistant 设为其父节点当前激活分支。
-- 切换分支后，会从该 assistant 开始继续向下寻找当前叶子节点，重新派生 `messages`。
+- `editUserMessage` 只能对 user 消息调用。
+- 它不会原地覆盖旧消息，而是在该 user 消息的 `parent_message_uuid` 下创建一个新的 user sibling。
+- 新 user sibling 使用“当前输入区选择的模型”，不会沿用旧 user message 的 `model`。
+- 随后继续走普通 `sendMessage` 的 `submit` 流程。
+- 所以“编辑”在产品语义上等价于“基于这条历史 user 消息 fork 一个新版本”。
+- 原 user 分支仍然保留，可通过分支切换回看。
+
+### 2.7 getBranchState / selectBranch
+
+```ts
+type getBranchState = (parentMessageUuid: string) => string[];
+type selectBranch = (messageUuid: string) => void;
+```
+
+约束：
+
+- `getBranchState(parentMessageUuid)` 返回某个父节点下的全部 `child_uuids`。
+- 这个 parent 可以是：
+  - 某条 user 的 `uuid`，用来查看它下面的 assistant siblings
+  - 某条 user 的父节点 `uuid`，用来查看这条 user 所在层的 user siblings
+- `selectBranch(messageUuid)` 传入目标 sibling 的 uuid。
+- `selectBranch` 会把该消息设为其父节点当前激活分支。
+- 切换分支后，会从该消息开始继续向下寻找当前叶子节点，重新派生 `messages`。
 - 当前正在 `submitted` 或 `streaming` 时不允许切分支，直接抛错。
 
-### 2.6 stop
+### 2.8 stop
 
 ```ts
 type stop = () => void;
@@ -154,7 +216,7 @@ type stop = () => void;
 - 当前 assistant 消息的 `stop_reason` 置为 `user_canceled`。
 - 中断完成后 `status` 回到 `ready`。
 
-### 2.7 status
+### 2.9 status
 
 ```ts
 type ChatStatus = "ready" | "submitted" | "streaming" | "error";
@@ -185,33 +247,48 @@ POST /api/chat_conversations/{conversationId}/completion
 请求体：
 
 ```ts
-{
-  prompt: 'hi',
-  parent_message_uuid: '019ccd92-d437-70fc-a9fc-5a893f12fa70',
-  model: 'claude-sonnet-4-6',
-  trigger: 'submit',
-  turn_message_uuids: {
-    user_message_uuid: '019cd069-55c3-7190-a212-cac6a56e74ab',
-    assistant_message_uuid: '019cd069-55c3-7904-aac3-569c7605069b'
-  },
-  attachments: [],
-  files: [],
-}
+type ChatCompletionRequest =
+  | {
+      prompt: 'hi'
+      parent_message_uuid: '019ccd92-d437-70fc-a9fc-5a893f12fa70'
+      model: 'claude-sonnet-4-6'
+      trigger: 'submit'
+      turn_message_uuids: {
+        user_message_uuid: '019cd069-55c3-7190-a212-cac6a56e74ab'
+        assistant_message_uuid: '019cd069-55c3-7904-aac3-569c7605069b'
+      }
+      attachments: []
+      files: []
+    }
+  | {
+      prompt: ''
+      parent_message_uuid: '019cd069-55c3-7190-a212-cac6a56e74ab'
+      model: 'claude-sonnet-4-6'
+      trigger: 'regenerate'
+      turn_message_uuids: {
+        assistant_message_uuid: '019cd069-55c3-7904-aac3-569c7605069b'
+      }
+      attachments: []
+      files: []
+    }
 ```
 
 组装规则：
 
 - `prompt` 来自 `sendMessage(...).prompt`。
-- `sendMessage` 时，`parent_message_uuid` 取当前分支最后一条消息的 `uuid`。
-- `regenerate` 时，`parent_message_uuid` 取目标 assistant 的 `parent_message_uuid`。
+- `sendMessage` 时，`parent_message_uuid` 默认取当前分支最后一条消息的 `uuid`。
+- `sendMessage` 也可显式指定 `parentMessageUuid`，用于在某个旧父节点下提交新的 user sibling。
+- `editUserMessage` 内部就是利用这一点，把新的 user 版本挂到被编辑 user 的父节点下。
+- `regenerate` / `regenerateUserMessage` 时，`parent_message_uuid` 取目标 user message 的 `uuid`。
 - 如果当前没有任何消息，则使用固定根节点 `"00000000-0000-4000-8000-000000000000"`。
-- `model` 当前固定为 `claude-sonnet-4-6`。
+- `model` 来自首页输入区当前选择的模型；重新生成时直接复用目标 message 自身记录的 `model`。
 - `trigger` 只支持 `"submit"` 和 `"regenerate"`。
 - `turn_message_uuids.user_message_uuid` 和 `turn_message_uuids.assistant_message_uuid` 由 hook 在发送前自动生成。
-- `regenerate` 时不会生成新的 user message uuid，而是直接复用父 user 消息的 uuid。
+- `regenerate` 时不会生成新的 user message uuid，请求体里也不会再传这个字段。
 - message uuid 使用 `uuid` 库的 UUID v7。
 - `attachments` 和 `files` 默认空数组。
 - 当前 mock 服务端会回显请求体中的 `assistant_message_uuid`，但前端流消费仍以 `message_start.message.uuid` 为准。
+- 当前 mock 在 `trigger: "regenerate"` 且 `prompt === ""` 时，会输出一个带 `parent_message_uuid` 的兜底文案，方便观察行为。
 
 ## 4. files 和 attachments
 
@@ -247,7 +324,7 @@ POST /api/chat_conversations/{conversationId}/completion
 
 ```txt
 event: message_start
-data: {"type":"message_start","message":{"id":"chatcompl_017LfCWBpwHhqdB7cmR2iwqp","type":"message","role":"assistant","model":"","parent_uuid":"019cd069-55c3-7190-a212-cac6a56e74ab","uuid":"019cd069-55c3-7904-aac3-569c7605069b","content":[],"stop_reason":null,"stop_sequence":null,"trace_id":"fb6c7644d9319a2435e99f2c3a8f867b","request_id":"req_011CYriJ8e9RxjUvKjTsQpck"}}
+data: {"type":"message_start","message":{"id":"chatcompl_017LfCWBpwHhqdB7cmR2iwqp","type":"message","role":"assistant","model":"claude-sonnet-4-6","parent_uuid":"019cd069-55c3-7190-a212-cac6a56e74ab","uuid":"019cd069-55c3-7904-aac3-569c7605069b","content":[],"stop_reason":null,"stop_sequence":null,"trace_id":"fb6c7644d9319a2435e99f2c3a8f867b","request_id":"req_011CYriJ8e9RxjUvKjTsQpck"}}
 
 event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"start_timestamp":"2026-03-09T02:24:51.814385Z","stop_timestamp":null,"flags":null,"type":"text","text":"","citations":[]}}
@@ -277,6 +354,7 @@ data: {"type":"message_stop"}
 事件到本地状态的映射：
 
 - `message_start`：创建 assistant 消息壳，uuid 使用服务端返回的 assistant uuid。
+- `message_start` 中的 `message.model` 会直接写入 assistant 消息的顶层 `model` 字段。
 - `message_start` 同时作为后续 `content_block_*`、`message_delta`、`message_limit` 的关联起点；这些事件本身不携带消息 uuid，所以流消费层会先缓存 `message_start.message.uuid`。
 - `content_block_start`：初始化对应 `content[index]`。
 - `content_block_delta`：追加文本到对应 `content[index].text`。
@@ -448,6 +526,7 @@ type ConversationNode = {
 
 - 当前 mock 接口会返回确定性、较长的多段文本。
 - 响应会回显用户输入的 `prompt`。
+- 如果是 `regenerate` 且 `prompt` 为空，会回显 `parent_message_uuid`，便于验证“从既有 user 消息重试”的语义。
 - 这样可以更清楚地观察：
   - 流式分块
   - 自动滚动
@@ -470,41 +549,62 @@ type ConversationNode = {
 - 新 chunk 到达时自动滚动到底部。
 - assistant 正在生成时，最后一条 assistant 气泡要有明确的流式反馈。
 - 输入区包含发送和停止两个动作。
+- 输入区底部包含一个 shadcn `Select` 模型切换器。
 - `sendMessage` 抛错时，前端先以轻量错误提示呈现。
-- assistant 消息下方包含重新生成入口。
-- assistant 消息下方包含分支切换控件，例如 `< 2/2 >`。
+- user 消息下方包含：
+  - 编辑入口
+  - 重新生成入口
+  - user sibling 分支切换控件，例如 `< 2/2 >`
+- assistant 消息下方包含：
+  - 重新生成入口
+  - assistant sibling 分支切换控件，例如 `< 2/2 >`
+- user 进入编辑态后，原消息会切成一个铺满消息宽度的 `textarea`，下方显示取消和确认。
+- 编辑确认后不会覆盖旧消息，而是创建一个新的 user 分支并继续生成 assistant。
 
 ## 10. 关键实现流程
 
 发送流程：
 
-1. 调用 `sendMessage({ prompt, attachments, files })`。
-2. 立即插入本地 user message，并把它挂到当前 `current_leaf_message_uuid` 下。
+1. 调用 `sendMessage({ prompt, attachments, files, model })`。
+2. 立即插入本地 user message，并把它挂到当前 `current_leaf_message_uuid` 下，同时把所选模型写入 `message.model`。
 3. 生成本轮 `user_message_uuid` 和 `assistant_message_uuid`。
 4. 组装 `trigger: "submit"` 的请求体并发起 `POST /api/chat_conversations/{conversationId}/completion`。
 5. `status` 进入 `submitted`。
-6. 收到 `message_start` 后，以 `message_start.message.uuid` 作为本轮 assistant 消息的真实 uuid，并创建 assistant 消息壳。
+6. 收到 `message_start` 后，以 `message_start.message.uuid` 作为本轮 assistant 消息的真实 uuid，并创建 assistant 消息壳，同时把服务端返回的 `message.model` 写入 assistant message。
 7. 收到 `content_block_delta` 后持续追加 assistant 文本；后续流事件都依赖上一步缓存的 assistant uuid。
 8. 收到 `message_limit` 后把数据合并到 assistant `metadata`。
 9. 收到 `message_stop` 后 `status` 回到 `ready`。
 
 重新生成流程：
 
-1. 调用 `regenerate(assistantMessageUuid)`。
-2. 找到目标 assistant 的父 user 消息。
-3. 复用该 user 消息的 `attachments`、`files` 和文本内容。
-4. 组装 `trigger: "regenerate"` 的请求体，`parent_message_uuid` 与旧 assistant 保持一致。
-5. 不创建新的 user 消息。
-6. 收到 `message_start` 后，把新 assistant 追加到同一父节点的 `child_uuids` 中。
-7. 同时更新该父节点的 `active_child_uuid_by_parent_uuid`，并把 `current_leaf_message_uuid` 切到新分支。
+1. 调用 `regenerateUserMessage(userMessageUuid)`，或调用 `regenerate(assistantMessageUuid)`。
+2. 找到目标 message，并直接读取它自己记录的 `model`。
+3. 如果目标是 assistant，则先回到它的父 user，再继续发 regenerate 请求。
+4. 复用目标 user 消息的 `attachments`、`files`，并把上一步拿到的 `model` 放进请求体。
+5. 组装 `trigger: "regenerate"` 的请求体，`parent_message_uuid` 取目标 user 的 `uuid`。
+6. 不创建新的 user 消息。
+7. 收到 `message_start` 后，把新 assistant 追加到该 user 节点的 `child_uuids` 中。
+8. 同时更新该父节点的 `active_child_uuid_by_parent_uuid`，并把 `current_leaf_message_uuid` 切到新分支。
+
+编辑用户消息流程：
+
+1. 用户点击某条 user 消息下方的编辑按钮。
+2. UI 进入编辑态，展示可修改文本的 `textarea`。
+3. 用户确认后调用 `editUserMessage(userMessageUuid, { prompt, model })`，其中 `model` 来自当前输入区选择。
+4. hook 找到原 user 消息，并读取它的 `parent_message_uuid`、`attachments`、`files`。
+5. 内部转调 `sendMessage({ prompt, attachments, files, parentMessageUuid, model })`。
+6. 创建新的 user sibling，并立即把它设为该父节点的当前激活分支。
+7. 后续 assistant 继续按普通 `submit` 流程生成。
 
 分支切换流程：
 
-1. UI 通过 `getBranchState(assistantMessageUuid)` 拿到当前 assistant 所在父节点的全部 `child_uuids`。
-2. 用户点击 `<` 或 `>` 后，UI 选择目标 assistant uuid 并调用 `selectBranch(targetAssistantUuid)`。
-3. reducer 更新对应父节点的 `active_child_uuid_by_parent_uuid`。
-4. 从这个 assistant 开始继续向下解析当前激活子链。
-5. 得到新的 `current_leaf_message_uuid`，并重新派生当前 `messages`。
+1. UI 通过 `getBranchState(parentMessageUuid)` 拿到某个父节点下的全部 `child_uuids`。
+2. user 消息下方展示的是该 user 所在层的 user siblings。
+3. assistant 消息下方展示的是该 user 下的 assistant siblings。
+4. 用户点击 `<` 或 `>` 后，UI 选择目标 sibling uuid 并调用 `selectBranch(targetMessageUuid)`。
+5. reducer 更新对应父节点的 `active_child_uuid_by_parent_uuid`。
+6. 从这个被选中的消息开始继续向下解析当前激活子链。
+7. 得到新的 `current_leaf_message_uuid`，并重新派生当前 `messages`。
 
 停止流程：
 
