@@ -2,6 +2,8 @@ import { toChatTimestamp } from './time'
 import type {
   ChatCompletionContentBlockStartEvent,
   ChatCompletionMessageStartEvent,
+  ChatToolResultContent,
+  ChatToolUseContent,
   NewChatMessage,
 } from './types'
 
@@ -26,6 +28,7 @@ export function createUserMessage({
     attachments,
     content: [
       {
+        citations: [],
         start_timestamp: timestamp,
         stop_timestamp: timestamp,
         text: prompt,
@@ -65,10 +68,51 @@ export function createAssistantMessage(
 }
 
 export function createContentBlock(event: ChatCompletionContentBlockStartEvent) {
+  switch (event.content_block.type) {
+    case 'text':
+      return {
+        citations: event.content_block.citations,
+        start_timestamp: event.content_block.start_timestamp,
+        stop_timestamp: event.content_block.stop_timestamp,
+        text: event.content_block.text,
+        type: event.content_block.type,
+      } satisfies NewChatMessage['content'][number]
+
+    case 'tool_use':
+      return {
+        display_content: event.content_block.display_content,
+        icon_name: event.content_block.icon_name,
+        id: event.content_block.id,
+        input: event.content_block.input,
+        message: event.content_block.message,
+        name: event.content_block.name,
+        start_timestamp: event.content_block.start_timestamp,
+        stop_timestamp: event.content_block.stop_timestamp,
+        tool_result: null,
+        type: event.content_block.type,
+      } satisfies ChatToolUseContent
+
+    case 'tool_result':
+      throw new Error('Tool result blocks must be attached to a tool_use block.')
+  }
+}
+
+export function createToolResultBlock(
+  event: ChatCompletionContentBlockStartEvent,
+) {
+  if (event.content_block.type !== 'tool_result') {
+    throw new Error('Expected a tool_result block.')
+  }
+
   return {
+    display_content: event.content_block.display_content,
+    icon_name: event.content_block.icon_name,
+    is_error: event.content_block.is_error,
+    message: event.content_block.message,
+    name: event.content_block.name,
     start_timestamp: event.content_block.start_timestamp,
     stop_timestamp: event.content_block.stop_timestamp,
-    text: event.content_block.text,
+    tool_use_id: event.content_block.tool_use_id,
     type: event.content_block.type,
-  } satisfies NewChatMessage['content'][number]
+  } satisfies ChatToolResultContent
 }

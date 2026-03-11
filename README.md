@@ -60,8 +60,60 @@ interface Message {
 interface ContentType {
   start_timestamp: string;
   stop_timestamp: string | null;
+  type: "text" | "tool_use";
+}
+
+interface TextContentBlock extends ContentType {
   type: "text";
   text: string;
+  citations: Citation[];
+}
+
+interface Citation {
+  uuid: string;
+  start_index: number;
+  end_index: number;
+  title: string | null;
+  url: string | null;
+  metadata: {
+    type?: string;
+    site_domain?: string;
+    favicon_url?: string;
+    site_name?: string;
+  } | null;
+  origin_tool_name: string | null;
+  sources: CitationSource[];
+}
+
+interface CitationSource {
+  uuid: string;
+  title: string | null;
+  url: string | null;
+  icon_url: string | null;
+  source: string | null;
+}
+
+interface ToolUseContentBlock extends ContentType {
+  type: "tool_use";
+  id: string;
+  name: string;
+  icon_name: string | null;
+  input: Record<string, unknown> | null;
+  message: string | null;
+  display_content: unknown | null;
+  tool_result: ToolResultContentBlock | null;
+}
+
+interface ToolResultContentBlock {
+  type: "tool_result";
+  tool_use_id: string;
+  name: string;
+  icon_name: string | null;
+  message: string | null;
+  display_content: unknown | null;
+  is_error: boolean;
+  start_timestamp: string;
+  stop_timestamp: string | null;
 }
 
 interface MessageLimit {
@@ -92,6 +144,9 @@ interface MessageLimit {
 - `index` 只表示消息创建顺序，不参与分支顺序判断。
 - 例如：`user = 0`、`assistant = 1`、同一 user 下重新生成出的 `assistant = 2`、下一条 user 再是 `3`。
 - 用户消息的 `content` 当前只支持单个文本块。
+- assistant 消息支持文本块和工具调用块混排。
+- `text` block 的 `text` 保存原始 Markdown 源串；`citations` 是挂在该 block 上的区间注解。
+- 工具调用块在前端状态中会把 `tool_result` 嵌套到对应 `tool_use` 下，不单独作为第二个消息块展示。
 - assistant 消息在流式生成期间允许 `stop_reason = null`。
 - `model` 直接挂在消息顶层字段上，user 和 assistant 都保留。
 - `message_limit` 落到 assistant 消息的 `metadata.message_limit` 中。
@@ -289,6 +344,7 @@ type ChatCompletionRequest =
 - `attachments` 和 `files` 默认空数组。
 - 当前 mock 服务端会回显请求体中的 `assistant_message_uuid`，但前端流消费仍以 `message_start.message.uuid` 为准。
 - 当前 mock 在 `trigger: "regenerate"` 且 `prompt === ""` 时，会输出一个带 `parent_message_uuid` 的兜底文案，方便观察行为。
+- 当前 mock 会主动插入可见延迟，方便在首页观察 `tool_use` 标题流光、标题切换和展开内容变化。
 
 ## 4. files 和 attachments
 
@@ -320,6 +376,21 @@ type ChatCompletionRequest =
 
 - 其他尚未确认或当前 hook 不依赖的扩展事件。
 
+当前已支持的 `content_block` 类型：
+
+- `text`
+- `tool_use`
+- `tool_result`
+
+其中：
+
+- SSE 原始协议里 `tool_use` 和 `tool_result` 仍然是两个独立 block。
+- 前端解析后会把 `tool_result` 挂到对应 `tool_use.tool_result` 上。
+- `text` block 支持 `citations` 字段，并支持在流式阶段通过 `citation_start_delta` / `citation_end_delta` 标记区间。
+- 协议里工具块统一使用 `display_content`，不再使用 `content`。
+- `tool_use` 期间可通过 `tool_use_block_update_delta` 覆盖当前标题和展开内容。
+- `tool_result` 出现后，UI 标题严格使用 `tool_result.message ?? firstInputValue`，不再回退到 `tool_use.message`。
+
 示例：
 
 ```txt
@@ -327,19 +398,46 @@ event: message_start
 data: {"type":"message_start","message":{"id":"chatcompl_017LfCWBpwHhqdB7cmR2iwqp","type":"message","role":"assistant","model":"claude-sonnet-4-6","parent_uuid":"019cd069-55c3-7190-a212-cac6a56e74ab","uuid":"019cd069-55c3-7904-aac3-569c7605069b","content":[],"stop_reason":null,"stop_sequence":null,"trace_id":"fb6c7644d9319a2435e99f2c3a8f867b","request_id":"req_011CYriJ8e9RxjUvKjTsQpck"}}
 
 event: content_block_start
-data: {"type":"content_block_start","index":0,"content_block":{"start_timestamp":"2026-03-09T02:24:51.814385Z","stop_timestamp":null,"flags":null,"type":"text","text":"","citations":[]}}
+data: {"type":"content_block_start","index":0,"content_block":{"start_timestamp":"2026-03-11T11:49:38.941722Z","stop_timestamp":null,"flags":null,"type":"tool_use","id":"toolu_01WJUzuUvtXAnr5qH5F6C7xC","name":"web_search","input":{},"message":"Searching the web","icon_name":"globe","display_content":null}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" Hi"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"OpenAI Codex pricing 2026\"}"}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"! How can I help you today"}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"?"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"tool_use_block_update_delta","message":"Fetching: https://developers.openai.com/codex/pricing/","display_content":{"preview_url":"https://developers.openai.com/codex/pricing/"}}}
 
 event: content_block_stop
-data: {"type":"content_block_stop","index":0,"stop_timestamp":"2026-03-09T02:24:51.938292Z"}
+data: {"type":"content_block_stop","index":0,"stop_timestamp":"2026-03-11T11:49:39.048579Z"}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"start_timestamp":"2026-03-11T11:49:39.093133Z","stop_timestamp":null,"flags":null,"type":"tool_result","tool_use_id":"toolu_01WJUzuUvtXAnr5qH5F6C7xC","name":"web_search","message":"Found 3 sources","icon_name":"globe","display_content":null,"is_error":false}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"[{\"type\":\"knowledge\",\"title\":\"Codex Pricing\",\"url\":\"https://developers.openai.com/codex/pricing/\",\"metadata\":{\"type\":\"webpage_metadata\",\"site_domain\":\"openai.com\",\"favicon_url\":\"https://www.google.com/s2/favicons?sz=64&domain=openai.com\",\"site_name\":\"OpenAI\"},\"is_missing\":false}]" }}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1,"stop_timestamp":"2026-03-11T11:49:39.193133Z"}
+
+event: content_block_start
+data: {"type":"content_block_start","index":2,"content_block":{"start_timestamp":"2026-03-11T11:49:39.293133Z","stop_timestamp":null,"flags":null,"type":"text","text":"","citations":[]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"Mock response to: **OpenAI Codex pricing 2026**\n\n"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"citation_start_delta","citation":{"uuid":"citation-apidog-pricing","title":"How Affordable Is GPT-5 Codex Pricing for Developers in 2026","url":"https://apidog.com/blog/codex-pricing/","metadata":{"type":"webpage_metadata","site_domain":"apidog.com","favicon_url":"https://www.google.com/s2/favicons?sz=64&domain=apidog.com","site_name":"Apidog"},"origin_tool_name":"web_search","sources":[{"uuid":"citation-source-apidog-pricing","title":"How Affordable Is GPT-5 Codex Pricing for Developers in 2026","url":"https://apidog.com/blog/codex-pricing/","icon_url":"https://www.google.com/s2/favicons?sz=64&domain=apidog.com","source":"Apidog"}]}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"每五小时 30–150 个本地任务（含周限额），支持 CLI 和 IDE 集成"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"citation_end_delta","citation_uuid":"citation-apidog-pricing"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"。\n\n- `web_search` returned 3 knowledge items\n- Citation pills should appear inline after the cited span\n- Markdown formatting should remain intact while the text streams in"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":2,"stop_timestamp":"2026-03-11T11:49:39.338292Z"}
 
 event: message_delta
 data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null}}
@@ -356,12 +454,40 @@ data: {"type":"message_stop"}
 - `message_start`：创建 assistant 消息壳，uuid 使用服务端返回的 assistant uuid。
 - `message_start` 中的 `message.model` 会直接写入 assistant 消息的顶层 `model` 字段。
 - `message_start` 同时作为后续 `content_block_*`、`message_delta`、`message_limit` 的关联起点；这些事件本身不携带消息 uuid，所以流消费层会先缓存 `message_start.message.uuid`。
-- `content_block_start`：初始化对应 `content[index]`。
-- `content_block_delta`：追加文本到对应 `content[index].text`。
-- `content_block_stop`：写入该 block 的 `stop_timestamp`。
+- `content_block_start(type = "text")`：初始化对应 `content[index]` 文本块。
+- `content_block_delta(type = "text_delta")`：追加文本到对应 `content[index].text`。
+- `content_block_delta(type = "citation_start_delta")`：记录“当前 text block 已接收长度”作为 citation 的 `start_index`，并缓存 citation 元数据。
+- `content_block_delta(type = "citation_end_delta")`：用“当前 text block 已接收长度”作为 `end_index`，生成完整 citation 并追加到 `content[index].citations`。
+- `content_block_start(type = "tool_use")`：创建工具调用块。
+- `content_block_delta(type = "input_json_delta")` 且当前块是 `tool_use`：持续解析并更新 `tool_use.input`。
+- `content_block_delta(type = "tool_use_block_update_delta")`：覆盖 `tool_use.message` 和 `tool_use.display_content`。
+- `content_block_start(type = "tool_result")`：通过 `tool_use_id` 挂到对应 `tool_use.tool_result`。
+- `content_block_delta(type = "input_json_delta")` 且当前块是 `tool_result`：持续解析并更新 `tool_result.display_content`。
+- `content_block_delta(type = "tool_result_block_update_delta")`：覆盖 `tool_result.message`、`tool_result.display_content` 和可选错误态。
+- `content_block_stop(type = "tool_result")`：同时写入 `tool_result.stop_timestamp` 和外层 `tool_use.stop_timestamp`，把它视作整次工具调用完成时间。
+- 其他 `content_block_stop`：写入该 block 的 `stop_timestamp`。
 - `message_delta`：合并 `stop_reason` 等消息级字段。
 - `message_limit`：合并到当前 assistant 消息的 `metadata.message_limit`。
 - `message_stop`：结束本轮流式生成，`status` 进入 `ready`。
+
+### 5.1 如何理解 citation
+
+- `citation` 是挂在 `text block` 上的文本区间注解，不是正文字符串的一部分。
+- 区间基于原始 Markdown 源串，而不是基于最终渲染后的纯文本。
+- 流式场景下不能通过 `source: "目标文本"` 方式定位，因为：
+  - 目标文本可能尚未完整到达
+  - 同样的文本内容可能在正文中重复出现
+  - Markdown 语法和空白符会让基于文本匹配的定位变得脆弱
+- 因此协议用 `citation_start_delta` / `citation_end_delta` 表达“区间开始 / 区间结束”，前端在消费流时基于当前 block 已接收文本长度计算出 `[start_index, end_index)`。
+- 当前实现里索引单位使用 JavaScript `string` 的 UTF-16 offset。
+
+### 5.2 为什么使用半开区间
+
+- citation 统一使用 `[start_index, end_index)`，即含头不含尾。
+- 这样可以直接使用 `text.slice(start_index, end_index)` 获取被标注的源串片段。
+- 区间长度恒等于 `end_index - start_index`。
+- 相邻 citation 可以自然写成 `[10, 20)` 和 `[20, 30)`，没有重叠和歧义。
+- 对流式实现最直接：`citation_start_delta` 记录当前长度为 `start_index`，`citation_end_delta` 记录当前长度为 `end_index`，不需要额外修正。
 
 ## 6. 如何处理 EventSource 响应
 
@@ -613,3 +739,26 @@ type ConversationNode = {
 3. 保留已生成的 assistant 文本。
 4. 将 assistant 消息的 `stop_reason` 置为 `user_canceled`。
 5. `status` 回到 `ready`。
+
+## remark / remark-glm / react-markdown
+
+1. remark（核心解析器）：将 Markdown 文本解析成抽象语法树（AST），开发者可以通过编写或使用各种插件，对这棵树进行增删改查，最后再把它转回 Markdown 文本或者转换成 HTML。
+2. remark-gfm（语法扩展插件）：它是 remark 的一个官方插件，标准的 Markdown 规范（CommonMark）其实是非常基础的，它不支持表格（Tables）、删除线（Strikethrough ~~文字~~）、任务列表（Task lists - [x]）和网址自动链接等高级语法。remark-gfm 的作用就是给 remark 引擎加上这些扩展能力，让解析器能够认识并正确处理这些常用的 GitHub 扩展语法。
+3. react-markdown：底层正是依赖了 remark 引擎。它接收一段 Markdown 字符串，解析它，并将它直接渲染成 React 组件（React Elements）。
+
+### citation 如何插入到 Markdown 渲染中
+
+- `text` block 始终保存原始 Markdown 源串，citation 不会写回正文字符串。
+- 渲染时通过自定义 `remark` 插件，基于 citation 的索引区间把附加节点插入 Markdown AST。
+- 当前 UI 选择在 citation 区间末尾插入一个 inline citation pill，因此 citation 属于渲染层增强，而不是正文内容本身。
+- 这样做的收益：
+  - 不污染 Markdown 语义
+  - 复制正文时 citation 不会参与
+  - 可以保持段落、列表、表格等 Markdown 结构继续由 `react-markdown` 正常渲染
+  - citation 的 hover card / click 行为可以由独立 React 组件处理
+
+约束：
+
+- citation 当前只作用于单个 `text block`。
+- citation 边界应尽量避免切进 Markdown 语法标记内部。
+- 为了保证 Markdown 结构稳定，流式分块必须保留换行符；不能在 chunk 阶段丢失 `\n`，否则列表和段落会退化成普通文本。

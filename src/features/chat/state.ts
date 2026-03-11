@@ -1,7 +1,14 @@
 import { produce } from 'immer'
 
 import { ROOT_PARENT_MESSAGE_UUID } from './constants'
-import type { NewChatMessage, ChatMessage, ChatStatus } from './types'
+import type {
+  ChatCitation,
+  ChatMessage,
+  ChatStatus,
+  ChatToolResultContent,
+  ChatToolUseContent,
+  NewChatMessage,
+} from './types'
 
 export interface ConversationNode {
   child_uuids: string[]
@@ -41,7 +48,43 @@ export type ChatAction =
       index: number
       messageUuid: string
       text: string
-      type: 'content-block-delta-received'
+      type: 'text-block-delta-received'
+      updatedAt: string
+    }
+  | {
+      citation: ChatCitation
+      index: number
+      messageUuid: string
+      type: 'text-block-citation-added'
+      updatedAt: string
+    }
+  | {
+      index: number
+      input: Record<string, unknown> | null
+      messageUuid: string
+      type: 'tool-use-input-updated'
+      updatedAt: string
+    }
+  | {
+      displayContent: unknown | null
+      index: number
+      message: string | null
+      messageUuid: string
+      type: 'tool-use-updated'
+      updatedAt: string
+    }
+  | {
+      messageUuid: string
+      type: 'tool-result-started'
+      value: ChatToolResultContent
+    }
+  | {
+      displayContent?: unknown | null
+      isError?: boolean
+      message?: string | null
+      messageUuid: string
+      toolUseId: string
+      type: 'tool-result-updated'
       updatedAt: string
     }
   | {
@@ -49,6 +92,12 @@ export type ChatAction =
       messageUuid: string
       stopTimestamp: string
       type: 'content-block-stopped'
+    }
+  | {
+      messageUuid: string
+      stopTimestamp: string
+      toolUseId: string
+      type: 'tool-result-stopped'
     }
   | {
       messageUuid: string
@@ -172,6 +221,16 @@ function appendMessageNode(
   draft.next_message_index += 1
 }
 
+function findToolUseBlock(
+  message: ChatMessage | null | undefined,
+  toolUseId: string,
+) {
+  return message?.content.find(
+    (block): block is ChatToolUseContent =>
+      block.type === 'tool_use' && block.id === toolUseId,
+  )
+}
+
 // 根据 current_leaf_message_uuid 节点的 parent_id 一路向上遍历父节点，再反转得到完整分支
 export function selectCurrentBranchMessages(state: ChatState) {
   const messages: ChatMessage[] = []
@@ -236,15 +295,98 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         return
       }
 
-      case 'content-block-delta-received': {
+      case 'text-block-delta-received': {
         const message = findNodeByUuid(draft.mapping, action.messageUuid)?.message
         const currentBlock = message?.content[action.index]
 
-        if (!message || !currentBlock) {
+        if (!message || !currentBlock || currentBlock.type !== 'text') {
           return
         }
 
         currentBlock.text += action.text
+        message.updated_at = action.updatedAt
+        return
+      }
+
+      case 'text-block-citation-added': {
+        const message = findNodeByUuid(draft.mapping, action.messageUuid)?.message
+        const currentBlock = message?.content[action.index]
+
+        if (!message || !currentBlock || currentBlock.type !== 'text') {
+          return
+        }
+
+        currentBlock.citations.push(action.citation)
+        message.updated_at = action.updatedAt
+        return
+      }
+
+      case 'tool-use-input-updated': {
+        const message = findNodeByUuid(draft.mapping, action.messageUuid)?.message
+        const currentBlock = message?.content[action.index]
+
+        if (!message || !currentBlock || currentBlock.type !== 'tool_use') {
+          return
+        }
+
+        currentBlock.input = action.input
+        message.updated_at = action.updatedAt
+        return
+      }
+
+      case 'tool-use-updated': {
+        const message = findNodeByUuid(draft.mapping, action.messageUuid)?.message
+        const currentBlock = message?.content[action.index]
+
+        if (!message || !currentBlock || currentBlock.type !== 'tool_use') {
+          return
+        }
+
+        currentBlock.message = action.message
+        currentBlock.display_content = action.displayContent
+        message.updated_at = action.updatedAt
+        return
+      }
+
+      case 'tool-result-started': {
+        const message = findNodeByUuid(draft.mapping, action.messageUuid)?.message
+        const toolUseBlock = findToolUseBlock(
+          message,
+          action.value.tool_use_id,
+        )
+
+        if (!message || !toolUseBlock) {
+          return
+        }
+
+        toolUseBlock.tool_result = action.value
+        toolUseBlock.stop_timestamp = null
+        message.updated_at = action.value.start_timestamp
+        return
+      }
+
+      case 'tool-result-updated': {
+        const message = findNodeByUuid(draft.mapping, action.messageUuid)?.message
+        const toolUseBlock = findToolUseBlock(message, action.toolUseId)
+        const toolResult = toolUseBlock?.tool_result
+
+        if (!message || !toolUseBlock || !toolResult) {
+          return
+        }
+
+        if (Object.hasOwn(action, 'message')) {
+          toolResult.message = action.message ?? null
+        }
+
+        if (Object.hasOwn(action, 'displayContent')) {
+          toolResult.display_content = action.displayContent ?? null
+        }
+
+        if (typeof action.isError === 'boolean') {
+          toolResult.is_error = action.isError
+        }
+
+        toolUseBlock.stop_timestamp = null
         message.updated_at = action.updatedAt
         return
       }
@@ -258,6 +400,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         }
 
         currentBlock.stop_timestamp = action.stopTimestamp
+        message.updated_at = action.stopTimestamp
+        return
+      }
+
+      case 'tool-result-stopped': {
+        const message = findNodeByUuid(draft.mapping, action.messageUuid)?.message
+        const toolUseBlock = findToolUseBlock(message, action.toolUseId)
+        const toolResult = toolUseBlock?.tool_result
+
+        if (!message || !toolUseBlock || !toolResult) {
+          return
+        }
+
+        toolResult.stop_timestamp = action.stopTimestamp
+        toolUseBlock.stop_timestamp = action.stopTimestamp
         message.updated_at = action.stopTimestamp
         return
       }
@@ -303,6 +460,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
         for (const block of message.content) {
           block.stop_timestamp ??= action.stoppedAt
+
+          if (block.type === 'tool_use' && block.tool_result) {
+            block.tool_result.stop_timestamp ??= action.stoppedAt
+          }
         }
 
         message.stop_reason = 'user_canceled'

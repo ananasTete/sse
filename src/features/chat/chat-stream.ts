@@ -1,7 +1,12 @@
 import { createSseParser } from './sse'
 import { toChatTimestamp } from './time'
-import { createAssistantMessage, createContentBlock } from './message-builders'
+import {
+  createAssistantMessage,
+  createContentBlock,
+  createToolResultBlock,
+} from './message-builders'
 import type {
+  ChatCitation,
   ChatCompletionContentBlockDeltaEvent,
   ChatCompletionContentBlockStartEvent,
   ChatCompletionContentBlockStopEvent,
@@ -10,6 +15,37 @@ import type {
   ChatCompletionMessageStartEvent,
 } from './types'
 import type { ChatAction } from './state'
+
+type ActiveContentBlock =
+  | {
+      openCitations: Map<
+        string,
+        {
+          citation: Omit<ChatCitation, 'end_index' | 'start_index'>
+          startIndex: number
+        }
+      >
+      textLength: number
+      type: 'text'
+    }
+  | {
+      inputJsonBuffer: string
+      toolUseId: string
+      type: 'tool_use'
+    }
+  | {
+      displayContentJsonBuffer: string
+      toolUseId: string
+      type: 'tool_result'
+    }
+
+function tryParseJson<T>(value: string) {
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return undefined
+  }
+}
 
 export function assertSuccessfulResponse(response: Response) {
   if (!response.ok) {
@@ -42,6 +78,7 @@ export async function consumeChatCompletionStream({
   const decoder = new TextDecoder()
   let didReceiveMessageStop = false
   let assistantMessageUuid: string | null = null
+  const activeContentBlocks = new Map<number, ActiveContentBlock>()
 
   const getAssistantMessageUuidOrThrow = (eventType: string) => {
     if (!assistantMessageUuid) {
@@ -69,30 +106,187 @@ export async function consumeChatCompletionStream({
       case 'content_block_start': {
         const payload = JSON.parse(data) as ChatCompletionContentBlockStartEvent
 
-        dispatch({
-          index: payload.index,
-          messageUuid: getAssistantMessageUuidOrThrow(event),
-          type: 'content-block-started',
-          value: createContentBlock(payload),
-        })
+        const messageUuid = getAssistantMessageUuidOrThrow(event)
+
+        switch (payload.content_block.type) {
+          case 'text':
+            activeContentBlocks.set(payload.index, {
+              openCitations: new Map(),
+              textLength: payload.content_block.text.length,
+              type: 'text',
+            })
+            dispatch({
+              index: payload.index,
+              messageUuid,
+              type: 'content-block-started',
+              value: createContentBlock(payload),
+            })
+            break
+
+          case 'tool_use':
+            activeContentBlocks.set(payload.index, {
+              inputJsonBuffer: '',
+              toolUseId: payload.content_block.id,
+              type: 'tool_use',
+            })
+            dispatch({
+              index: payload.index,
+              messageUuid,
+              type: 'content-block-started',
+              value: createContentBlock(payload),
+            })
+            break
+
+          case 'tool_result':
+            activeContentBlocks.set(payload.index, {
+              displayContentJsonBuffer: '',
+              toolUseId: payload.content_block.tool_use_id,
+              type: 'tool_result',
+            })
+            dispatch({
+              messageUuid,
+              type: 'tool-result-started',
+              value: createToolResultBlock(payload),
+            })
+            break
+        }
         break
       }
 
       case 'content_block_delta': {
         const payload = JSON.parse(data) as ChatCompletionContentBlockDeltaEvent
+        const messageUuid = getAssistantMessageUuidOrThrow(event)
+        const updatedAt = toChatTimestamp()
+        const activeBlock = activeContentBlocks.get(payload.index)
 
-        dispatch({
-          index: payload.index,
-          messageUuid: getAssistantMessageUuidOrThrow(event),
-          text: payload.delta.text,
-          type: 'content-block-delta-received',
-          updatedAt: toChatTimestamp(),
-        })
+        if (!activeBlock) {
+          break
+        }
+
+        switch (activeBlock.type) {
+          case 'text':
+            if (payload.delta.type === 'text_delta') {
+              activeBlock.textLength += payload.delta.text.length
+              dispatch({
+                index: payload.index,
+                messageUuid,
+                text: payload.delta.text,
+                type: 'text-block-delta-received',
+                updatedAt,
+              })
+              break
+            }
+
+            if (payload.delta.type === 'citation_start_delta') {
+              activeBlock.openCitations.set(payload.delta.citation.uuid, {
+                citation: payload.delta.citation,
+                startIndex: activeBlock.textLength,
+              })
+              break
+            }
+
+            if (payload.delta.type === 'citation_end_delta') {
+              const openCitation = activeBlock.openCitations.get(
+                payload.delta.citation_uuid,
+              )
+
+              if (!openCitation) {
+                break
+              }
+
+              activeBlock.openCitations.delete(payload.delta.citation_uuid)
+              dispatch({
+                citation: {
+                  ...openCitation.citation,
+                  end_index: activeBlock.textLength,
+                  start_index: openCitation.startIndex,
+                },
+                index: payload.index,
+                messageUuid,
+                type: 'text-block-citation-added',
+                updatedAt,
+              })
+            }
+            break
+
+          case 'tool_use':
+            if (payload.delta.type === 'input_json_delta') {
+              activeBlock.inputJsonBuffer += payload.delta.partial_json
+              const parsedInput = tryParseJson<Record<string, unknown> | null>(
+                activeBlock.inputJsonBuffer,
+              )
+
+              if (parsedInput !== undefined) {
+                dispatch({
+                  index: payload.index,
+                  input: parsedInput,
+                  messageUuid,
+                  type: 'tool-use-input-updated',
+                  updatedAt,
+                })
+              }
+            }
+
+            if (payload.delta.type === 'tool_use_block_update_delta') {
+              dispatch({
+                displayContent: payload.delta.display_content,
+                index: payload.index,
+                message: payload.delta.message,
+                messageUuid,
+                type: 'tool-use-updated',
+                updatedAt,
+              })
+            }
+            break
+
+          case 'tool_result':
+            if (payload.delta.type === 'input_json_delta') {
+              activeBlock.displayContentJsonBuffer += payload.delta.partial_json
+              const parsedDisplayContent = tryParseJson<unknown>(
+                activeBlock.displayContentJsonBuffer,
+              )
+
+              if (parsedDisplayContent !== undefined) {
+                dispatch({
+                  displayContent: parsedDisplayContent,
+                  messageUuid,
+                  toolUseId: activeBlock.toolUseId,
+                  type: 'tool-result-updated',
+                  updatedAt,
+                })
+              }
+            }
+
+            if (payload.delta.type === 'tool_result_block_update_delta') {
+              dispatch({
+                displayContent: payload.delta.display_content,
+                isError: payload.delta.is_error,
+                message: payload.delta.message,
+                messageUuid,
+                toolUseId: activeBlock.toolUseId,
+                type: 'tool-result-updated',
+                updatedAt,
+              })
+            }
+            break
+        }
         break
       }
 
       case 'content_block_stop': {
         const payload = JSON.parse(data) as ChatCompletionContentBlockStopEvent
+        const activeBlock = activeContentBlocks.get(payload.index)
+
+        if (activeBlock?.type === 'tool_result') {
+          dispatch({
+            messageUuid: getAssistantMessageUuidOrThrow(event),
+            stopTimestamp: payload.stop_timestamp,
+            toolUseId: activeBlock.toolUseId,
+            type: 'tool-result-stopped',
+          })
+          activeContentBlocks.delete(payload.index)
+          break
+        }
 
         dispatch({
           index: payload.index,
@@ -100,6 +294,7 @@ export async function consumeChatCompletionStream({
           stopTimestamp: payload.stop_timestamp,
           type: 'content-block-stopped',
         })
+        activeContentBlocks.delete(payload.index)
         break
       }
 

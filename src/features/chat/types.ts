@@ -6,12 +6,66 @@ export type ChatStopReason = 'end_turn' | 'stop_sequence' | 'user_canceled' | nu
 
 export type ChatTrigger = 'regenerate' | 'submit'
 
-export interface ChatContent {
+export interface ChatTextContent {
+  citations: ChatCitation[]
   start_timestamp: string
   stop_timestamp: string | null
   text: string
   type: 'text'
 }
+
+export interface ChatCitationMetadata {
+  favicon_url?: string
+  site_domain?: string
+  site_name?: string
+  type?: string
+}
+
+export interface ChatCitationSource {
+  icon_url: string | null
+  source: string | null
+  title: string | null
+  url: string | null
+  uuid: string
+}
+
+export interface ChatCitation {
+  end_index: number
+  metadata: ChatCitationMetadata | null
+  origin_tool_name: string | null
+  sources: ChatCitationSource[]
+  start_index: number
+  title: string | null
+  url: string | null
+  uuid: string
+}
+
+export interface ChatToolResultContent {
+  display_content: unknown | null
+  icon_name: string | null
+  is_error: boolean
+  message: string | null
+  name: string
+  start_timestamp: string
+  stop_timestamp: string | null
+  tool_use_id: string
+  type: 'tool_result'
+}
+
+export interface ChatToolUseContent {
+  display_content: unknown | null
+  icon_name: string | null
+  id: string
+  input: Record<string, unknown> | null
+  message: string | null
+  name: string
+  start_timestamp: string
+  stop_timestamp: string | null
+  tool_result: ChatToolResultContent | null
+  type: 'tool_use'
+}
+
+export type ChatContent = ChatTextContent | ChatToolUseContent
 
 export interface ChatMessageLimitWindow {
   resets_at: number | null
@@ -118,23 +172,72 @@ export interface ChatCompletionMessageStartEvent {
 }
 
 export interface ChatCompletionContentBlockStartEvent {
-  content_block: {
-    citations: unknown[]
-    flags: null
-    start_timestamp: string
-    stop_timestamp: null
-    text: string
-    type: 'text'
-  }
+  content_block:
+    | {
+        citations: ChatCitation[]
+        flags: null
+        start_timestamp: string
+        stop_timestamp: null
+        text: string
+        type: 'text'
+      }
+    | {
+        display_content: unknown | null
+        flags: null
+        icon_name: string | null
+        id: string
+        input: Record<string, unknown> | null
+        message: string | null
+        name: string
+        start_timestamp: string
+        stop_timestamp: null
+        type: 'tool_use'
+      }
+    | {
+        display_content: unknown | null
+        flags: null
+        icon_name: string | null
+        is_error: boolean
+        message: string | null
+        name: string
+        start_timestamp: string
+        stop_timestamp: null
+        tool_use_id: string
+        type: 'tool_result'
+      }
   index: number
   type: 'content_block_start'
 }
 
 export interface ChatCompletionContentBlockDeltaEvent {
-  delta: {
-    text: string
-    type: 'text_delta'
-  }
+  delta:
+    | {
+        text: string
+        type: 'text_delta'
+      }
+    | {
+        citation: Omit<ChatCitation, 'end_index' | 'start_index'>
+        type: 'citation_start_delta'
+      }
+    | {
+        citation_uuid: string
+        type: 'citation_end_delta'
+      }
+    | {
+        partial_json: string
+        type: 'input_json_delta'
+      }
+    | {
+        display_content: unknown | null
+        message: string | null
+        type: 'tool_use_block_update_delta'
+      }
+    | {
+        display_content: unknown | null
+        is_error?: boolean
+        message: string | null
+        type: 'tool_result_block_update_delta'
+      }
   index: number
   type: 'content_block_delta'
 }
