@@ -1,10 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ArrowUp } from 'lucide-react'
-import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useRef } from 'react'
 import { v7 as generateTimeOrderedUuid } from 'uuid'
-import { ConversationComposer } from '#/features/chat/components/conversation-composer'
+import { ConversationComposerPanel } from '#/features/chat/components/conversation-composer-panel'
 import {
   buildConversationDetailSnapshot,
   buildConversationTitleFromPrompt,
@@ -12,7 +10,6 @@ import {
   createChatConversation,
   upsertConversationListCache,
 } from '#/features/chat/conversation-client'
-import { DEFAULT_MODEL } from '#/features/chat/constants'
 import { setPendingInitialSubmission } from '#/features/chat/pending-initial-submission'
 
 export const Route = createFileRoute('/')({ component: LandingPage })
@@ -20,30 +17,20 @@ export const Route = createFileRoute('/')({ component: LandingPage })
 function LandingPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [feedback, setFeedback] = useState<string | null>(null)
-  const [input, setInput] = useState('')
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL)
-  const createConversationMutation = useMutation({
-    mutationFn: createChatConversation,
-  })
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setFeedback(null)
+  const { isPending, mutate } = useMutation({
+    mutationFn: ({
+      uuid,
+      signal,
+    }: {
+      uuid: string
+      signal: AbortSignal
+      model: string
+      prompt: string
+    }) => createChatConversation({ uuid, signal }),
 
-    const prompt = input.trim()
-
-    if (!prompt) {
-      setFeedback('Prompt cannot be empty.')
-      return
-    }
-
-    const conversationId = generateTimeOrderedUuid()
-
-    try {
-      const createdConversation = await createConversationMutation.mutateAsync({
-        uuid: conversationId,
-      })
+    onSuccess: (createdConversation, { uuid: conversationId, model, prompt }) => {
       const cachedTitle = buildConversationTitleFromPrompt(prompt)
 
       queryClient.setQueryData(
@@ -57,21 +44,35 @@ function LandingPage() {
         ...createdConversation,
         title: cachedTitle,
       })
-      setPendingInitialSubmission(conversationId, {
-        model: selectedModel,
-        prompt,
-      })
-      await navigate({
-        params: {
-          conversationId,
-        },
+      setPendingInitialSubmission(conversationId, { model, prompt })
+      navigate({
+        params: { conversationId },
         to: '/chat/$conversationId',
       })
-    } catch (error) {
-      setFeedback(
-        error instanceof Error ? error.message : 'Failed to create conversation.',
-      )
-    }
+    },
+
+    onSettled: () => {
+      abortControllerRef.current = null
+    },
+  })
+
+  const handleSubmit = ({
+    model,
+    prompt,
+  }: {
+    model: string
+    prompt: string
+  }) => {
+    const conversationId = generateTimeOrderedUuid()
+    const abortController = new AbortController()
+
+    abortControllerRef.current = abortController
+    mutate({ uuid: conversationId, signal: abortController.signal, model, prompt })
+  }
+
+  const handleStop = () => {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
   }
 
   return (
@@ -85,35 +86,15 @@ function LandingPage() {
             Start a new session
           </h1>
           <p className="mx-auto max-w-2xl text-sm leading-7 text-[var(--sea-ink-soft)] sm:text-base">
-            Create a real conversation record first, then stream the opening
-            prompt into its dedicated route.
+            Use the same composer as an open conversation. Sending here creates
+            the session first, then continues in its dedicated route.
           </p>
         </div>
 
-        <ConversationComposer
-          actions={
-            <button
-              className="inline-flex h-10 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] px-4 text-sm font-medium text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
-              disabled={createConversationMutation.isPending}
-              type="submit"
-            >
-              <ArrowUp className="mr-2 size-4" />
-              Start chat
-            </button>
-          }
-          feedback={feedback}
-          onInputChange={(event) => {
-            setInput(event.target.value)
-          }}
+        <ConversationComposerPanel
+          isPending={isPending}
+          onStop={handleStop}
           onSubmit={handleSubmit}
-          placeholder="What do you want to work on?"
-          selectedModel={selectedModel}
-          setSelectedModel={setSelectedModel}
-          statusHint={
-            createConversationMutation.isPending ? 'Creating conversation...' : null
-          }
-          textareaClassName="min-h-32"
-          value={input}
         />
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { ArrowUp, Check, Mic, Square, X } from 'lucide-react'
-import type { ChangeEvent, FormEvent } from 'react'
+import type { FormEvent } from 'react'
+import { useState } from 'react'
 import {
   Select,
   SelectContent,
@@ -7,106 +8,97 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#/components/ui/select'
-import { AVAILABLE_MODELS } from '#/features/chat/constants'
-import type { VoiceComposerStatus } from '#/features/chat/use-voice-composer'
+import { AVAILABLE_MODELS, DEFAULT_MODEL } from '#/features/chat/constants'
+import { useVoiceComposer } from '#/features/chat/use-voice-composer'
 import { cn } from '#/lib/utils'
 
-interface ConversationComposerProps {
-  canConfirmVoice: boolean
-  feedback?: string | null
-  isBusy: boolean
-  isVoiceComposerOpen: boolean
-  onCloseVoiceComposer: () => void
-  onConfirmVoiceComposer: () => void | Promise<void>
-  onInputChange: (
-    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-  ) => void
-  onOpenVoiceComposer: () => void
+interface ConversationComposerPanelProps {
+  isPending: boolean
   onStop: () => void
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
-  selectedModel: string
-  setSelectedModel: (value: string) => void
-  statusHint?: string | null
-  value: string
-  voiceComposerErrorMessage: string | null
-  voiceComposerStatus: VoiceComposerStatus
-  voiceComposerStatusText: string
+  onSubmit: (payload: { model: string; prompt: string }) => void | Promise<void>
 }
 
-export function ConversationComposer({
-  canConfirmVoice,
-  feedback,
-  isBusy,
-  isVoiceComposerOpen,
-  onCloseVoiceComposer,
-  onConfirmVoiceComposer,
-  onInputChange,
-  onOpenVoiceComposer,
+export function ConversationComposerPanel({
+  isPending,
   onStop,
   onSubmit,
-  selectedModel,
-  setSelectedModel,
-  statusHint,
-  value,
-  voiceComposerErrorMessage,
-  voiceComposerStatus,
-  voiceComposerStatusText,
-}: ConversationComposerProps) {
-  const isMicDisabled = isBusy || isVoiceComposerOpen
+}: ConversationComposerPanelProps) {
+  const [input, setInput] = useState('')
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL)
+  const {
+    canConfirm,
+    close: closeVoiceComposer,
+    confirm: confirmVoiceComposer,
+    errorMessage: voiceComposerErrorMessage,
+    isOpen: isVoiceComposerOpen,
+    open: openVoiceComposer,
+    status: voiceComposerStatus,
+    statusText: voiceComposerStatusText,
+  } = useVoiceComposer()
+
+  const isMicDisabled = isPending || isVoiceComposerOpen
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const prompt = input.trim()
+    if (!prompt) return
+    await onSubmit({ model: selectedModel, prompt })
+    setInput('')
+  }
+
+  const handleConfirmVoiceComposer = async () => {
+    const text = await confirmVoiceComposer()
+    if (!text?.trim()) return
+    setInput((current) =>
+      current
+        ? `${current}${current.endsWith('\n') ? '' : '\n'}${text.trim()}`
+        : text.trim(),
+    )
+  }
 
   return (
     <div className="relative overflow-hidden border border-[var(--line)] bg-white/70 p-2 dark:bg-transparent">
-      <form className="space-y-3" onSubmit={onSubmit}>
+      <form className="space-y-3" onSubmit={handleSubmit}>
         <textarea
           className="min-h-24 w-full resize-none border border-transparent bg-transparent px-3 py-2 text-[0.95rem] leading-7 text-[var(--sea-ink)] outline-none placeholder:text-[var(--sea-ink-soft)]"
           disabled={isVoiceComposerOpen}
-          onChange={onInputChange}
+          onChange={(e) => setInput(e.target.value)}
           placeholder="Type a message."
-          value={value}
+          value={input}
         />
 
         <div className="flex flex-col gap-3 border-t border-[var(--line)] px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-1.5">
-              <span className="px-2 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
-                Model
-              </span>
+          <div className="flex flex-col gap-1.5">
+            <span className="px-2 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
+              Model
+            </span>
 
-              <Select
-                disabled={isVoiceComposerOpen}
-                onValueChange={setSelectedModel}
-                value={selectedModel}
-              >
-                <SelectTrigger className="h-10 min-w-64 border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] shadow-none">
-                  <SelectValue placeholder="Select a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {AVAILABLE_MODELS.map((model) => (
-                    <SelectItem key={model.value} value={model.value}>
-                      {model.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {feedback ? (
-              <div className="px-2 text-sm text-[rgb(153,27,27)]">{feedback}</div>
-            ) : statusHint ? (
-              <div className="px-2 text-sm text-[var(--sea-ink-soft)]">
-                {statusHint}
-              </div>
-            ) : null}
+            <Select
+              disabled={isVoiceComposerOpen}
+              onValueChange={setSelectedModel}
+              value={selectedModel}
+            >
+              <SelectTrigger className="h-10 min-w-64 border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] shadow-none">
+                <SelectValue placeholder="Select a model" />
+              </SelectTrigger>
+              <SelectContent>
+                {AVAILABLE_MODELS.map((model) => (
+                  <SelectItem key={model.value} value={model.value}>
+                    {model.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
             <button
               className="inline-flex h-10 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] px-4 text-sm font-medium text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
               disabled={isVoiceComposerOpen}
-              onClick={isBusy ? onStop : undefined}
-              type={isBusy ? 'button' : 'submit'}
+              onClick={isPending ? onStop : undefined}
+              type={isPending ? 'button' : 'submit'}
             >
-              {isBusy ? (
+              {isPending ? (
                 <>
                   <Square className="mr-2 size-4 fill-current" />
                   Stop
@@ -123,7 +115,7 @@ export function ConversationComposer({
               aria-label="Record voice input"
               className="inline-flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] transition hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-45"
               disabled={isMicDisabled}
-              onClick={onOpenVoiceComposer}
+              onClick={() => void openVoiceComposer()}
               type="button"
             >
               <Mic className="size-4" />
@@ -186,7 +178,7 @@ export function ConversationComposer({
             <button
               aria-label="Close voice input"
               className="inline-flex h-11 w-11 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
-              onClick={onCloseVoiceComposer}
+              onClick={closeVoiceComposer}
               type="button"
             >
               <X className="size-4" />
@@ -195,10 +187,8 @@ export function ConversationComposer({
             <button
               aria-label="Confirm voice input"
               className="inline-flex h-11 w-11 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
-              disabled={!canConfirmVoice}
-              onClick={() => {
-                void onConfirmVoiceComposer()
-              }}
+              disabled={!canConfirm}
+              onClick={() => void handleConfirmVoiceComposer()}
               type="button"
             >
               <Check className="size-4" />

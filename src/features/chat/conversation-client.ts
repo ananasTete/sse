@@ -110,14 +110,16 @@ export function upsertConversationListCache(
 }
 
 export async function createChatConversation(
-  input: CreateChatConversationInput,
+  input: CreateChatConversationInput & { signal?: AbortSignal },
 ) {
+  const { signal, ...payload } = input
   const response = await fetch('/api/chat_conversations', {
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
     headers: {
       'Content-Type': 'application/json',
     },
     method: 'POST',
+    signal,
   })
 
   return readJson<ChatConversationSummary>(response)
