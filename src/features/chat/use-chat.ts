@@ -4,12 +4,13 @@ import { v7 as generateTimeOrderedUuid } from 'uuid'
 
 import { consumeChatCompletionStream } from './chat-stream'
 import {
-  CHAT_COMPLETION_PATH,
   DEFAULT_MODEL,
   ROOT_PARENT_MESSAGE_UUID,
+  getChatCompletionPath,
 } from './constants'
 import { createUserMessage } from './message-builders'
 import {
+  createHydratedChatState,
   chatReducer,
   getBranchState as selectBranchChildUuids,
   getMessageByUuid,
@@ -54,8 +55,29 @@ interface ActiveRequest {
   controller: AbortController
 }
 
-export function useChat(): UseChatResult {
-  const [state, dispatch] = useReducer(chatReducer, initialChatState)
+export function useChat({
+  conversationId,
+  initialCurrentLeafMessageUuid = null,
+  initialMapping = initialChatState.mapping,
+  onConversationChanged,
+}: {
+  conversationId: string
+  initialCurrentLeafMessageUuid?: string | null
+  initialMapping?: typeof initialChatState.mapping
+  onConversationChanged?: () => void | Promise<void>
+}): UseChatResult {
+  const [state, dispatch] = useReducer(
+    chatReducer,
+    {
+      currentLeafMessageUuid: initialCurrentLeafMessageUuid,
+      mapping: initialMapping,
+    },
+    ({ currentLeafMessageUuid, mapping }) =>
+      createHydratedChatState({
+        currentLeafMessageUuid,
+        mapping,
+      }),
+  )
   const activeRequestRef = useRef<ActiveRequest | null>(null) // 当前进行中请求信息，可以取消请求
   const messages = selectCurrentBranchMessages(state)
 
@@ -95,6 +117,8 @@ export function useChat(): UseChatResult {
       stoppedAt: toChatTimestamp(),
       type: 'message-stream-stopped',
     })
+
+    void onConversationChanged?.()
   }
 
   const ensureRequestIsIdle = () => {
@@ -107,7 +131,7 @@ export function useChat(): UseChatResult {
     body: ChatCompletionRequest,
     abortController: AbortController,
   ) => {
-    const response = await fetch(CHAT_COMPLETION_PATH, {
+    const response = await fetch(getChatCompletionPath(conversationId), {
       body: JSON.stringify(body),
       headers: {
         'Content-Type': 'application/json',
@@ -206,6 +230,8 @@ export function useChat(): UseChatResult {
       if (activeRequestRef.current?.controller === abortController) {
         activeRequestRef.current = null
       }
+
+      await onConversationChanged?.()
     }
   }
 
@@ -265,6 +291,8 @@ export function useChat(): UseChatResult {
       if (activeRequestRef.current?.controller === abortController) {
         activeRequestRef.current = null
       }
+
+      await onConversationChanged?.()
     }
   }
 

@@ -15,9 +15,13 @@ export function MessageContent({
 	isStreamingMessage,
 	onToggleToolBlock,
 }: MessageContentProps) {
+		const safeBlocks = blocks.filter(
+			(block): block is ChatContent => block != null,
+		);
+
 	return (
 		<div className="space-y-3">
-			{blocks.map((block) => {
+			{safeBlocks.map((block) => {
 				if (block.type === "text") {
 					const showCursor =
 						isStreamingMessage && block.stop_timestamp === null;

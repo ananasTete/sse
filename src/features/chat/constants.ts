@@ -1,8 +1,5 @@
 export const ROOT_PARENT_MESSAGE_UUID = '00000000-0000-4000-8000-000000000000'
 
-export const DEFAULT_CONVERSATION_ID =
-  '12e76900-eac7-488e-928b-d244016431a9'
-
 export const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 export const AVAILABLE_MODELS = [
@@ -20,4 +17,6 @@ export const AVAILABLE_MODELS = [
   },
 ] as const
 
-export const CHAT_COMPLETION_PATH = `/api/chat_conversations/${DEFAULT_CONVERSATION_ID}/completion`
+export function getChatCompletionPath(conversationId: string) {
+  return `/api/chat_conversations/${conversationId}/completion`
+}

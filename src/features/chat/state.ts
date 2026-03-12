@@ -147,6 +147,54 @@ export const initialChatState: ChatState = {
   status: 'ready',
 }
 
+export function createHydratedChatState({
+  currentLeafMessageUuid,
+  mapping,
+}: {
+  currentLeafMessageUuid: string | null
+  mapping: ChatState['mapping']
+}): ChatState {
+  const hydratedMapping = Object.keys(mapping).length
+    ? mapping
+    : initialChatState.mapping
+  const activeChildUuidByParentUuid: Record<string, string> = {}
+
+  for (const node of Object.values(hydratedMapping)) {
+    const firstChildUuid = node.child_uuids[0]
+
+    if (firstChildUuid) {
+      activeChildUuidByParentUuid[node.uuid] = firstChildUuid
+    }
+  }
+
+  let cursor = currentLeafMessageUuid
+
+  while (cursor) {
+    const node = hydratedMapping[cursor]
+
+    if (!node?.parent_uuid) {
+      break
+    }
+
+    activeChildUuidByParentUuid[node.parent_uuid] = node.uuid
+    cursor = node.parent_uuid
+  }
+
+  const maxMessageIndex = Object.values(hydratedMapping).reduce(
+    (maxIndex, node) => Math.max(maxIndex, node.message?.index ?? -1),
+    -1,
+  )
+
+  return {
+    active_child_uuid_by_parent_uuid: activeChildUuidByParentUuid,
+    current_leaf_message_uuid: currentLeafMessageUuid,
+    input: '',
+    mapping: hydratedMapping,
+    next_message_index: maxMessageIndex + 1,
+    status: 'ready',
+  }
+}
+
 function findNodeByUuid(
   mapping: ChatState['mapping'],
   messageUuid: string,

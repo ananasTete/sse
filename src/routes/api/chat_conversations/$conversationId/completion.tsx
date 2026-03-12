@@ -1,9 +1,18 @@
 import { createFileRoute } from '@tanstack/react-router'
+import {
+  mutateConversation,
+  updateConversationSummaryFields,
+} from '#/features/chat/conversation-store'
+import { createUserMessage } from '#/features/chat/message-builders'
 import { formatSseEvent } from '#/features/chat/sse'
 import { toChatTimestamp } from '#/features/chat/time'
+import type { ChatConversationDetail } from '#/features/chat/conversation-model'
 import type {
   ChatCitation,
   ChatCompletionRequest,
+  ChatMessage,
+  ChatToolUseContent,
+  NewChatMessage,
 } from '#/features/chat/types'
 
 export const Route = createFileRoute(
@@ -11,7 +20,7 @@ export const Route = createFileRoute(
 )({
   server: {
     handlers: {
-      POST: async ({ request }) => {
+      POST: async ({ params, request }) => {
         const body = (await request.json()) as ChatCompletionRequest
         const encoder = new TextEncoder()
         const assistantParentUuid =
@@ -21,11 +30,67 @@ export const Route = createFileRoute(
         const query = buildSearchQuery(body)
         const searchResults = buildSearchResults(query)
         const replySegments = buildMockReplySegments(body, query, searchResults)
+        const assistantMessageUuid =
+          body.turn_message_uuids.assistant_message_uuid
+        const toolUseId = `toolu_${assistantMessageUuid.replaceAll('-', '')}`
+        const userMessage =
+          body.trigger === 'submit'
+            ? createUserMessage({
+                files: body.files,
+                model: body.model,
+                parentMessageUuid: body.parent_message_uuid,
+                prompt: body.prompt.trim(),
+                uuid: body.turn_message_uuids.user_message_uuid,
+              })
+            : null
+        const assistantMessage = createPendingAssistantMessage({
+          model: body.model,
+          parentUuid: assistantParentUuid,
+          uuid: assistantMessageUuid,
+        })
+
+        try {
+          mutateConversation(params.conversationId, (conversation) => {
+            if (userMessage) {
+              appendMessageToConversation(conversation, userMessage)
+            }
+
+            appendMessageToConversation(conversation, assistantMessage)
+            updateConversationSummaryFields(conversation, {
+              currentLeafMessageUuid: assistantMessage.uuid,
+              prompt:
+                userMessage?.content[0]?.type === 'text'
+                  ? userMessage.content[0].text
+                  : body.prompt,
+              updatedAt: assistantMessage.updated_at,
+            })
+          })
+        } catch (error) {
+          return Response.json(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Conversation not found.',
+            },
+            { status: 404 },
+          )
+        }
 
         return new Response(
           new ReadableStream({
             async start(controller) {
               let closed = false
+              let textLength = 0
+              let toolUseInputJsonBuffer = ''
+              let toolResultDisplayContentJsonBuffer = ''
+              const openCitations = new Map<
+                string,
+                {
+                  citation: Omit<ChatCitation, 'end_index' | 'start_index'>
+                  startIndex: number
+                }
+              >()
 
               const close = () => {
                 if (closed) {
@@ -46,27 +111,26 @@ export const Route = createFileRoute(
               }
 
               const abortListener = () => {
+                persistAbort(params.conversationId, assistantMessageUuid)
                 close()
               }
 
               request.signal.addEventListener('abort', abortListener)
 
               try {
-                const toolUseId = `toolu_${body.turn_message_uuids.assistant_message_uuid.replaceAll('-', '')}`
-
                 if (
                   !enqueue(
                     formatSseEvent('message_start', {
                       message: {
                         content: [],
-                        id: `chatcompl_${body.turn_message_uuids.assistant_message_uuid.replaceAll('-', '')}`,
+                        id: `chatcompl_${assistantMessageUuid.replaceAll('-', '')}`,
                         model: body.model,
                         parent_uuid: assistantParentUuid,
                         role: 'assistant',
                         stop_reason: null,
                         stop_sequence: null,
                         type: 'message',
-                        uuid: body.turn_message_uuids.assistant_message_uuid,
+                        uuid: assistantMessageUuid,
                       },
                       type: 'message_start',
                     }),
@@ -76,6 +140,8 @@ export const Route = createFileRoute(
                 }
 
                 await sleep(280)
+
+                const toolUseStartTimestamp = toChatTimestamp()
 
                 if (
                   !enqueue(
@@ -88,7 +154,7 @@ export const Route = createFileRoute(
                         input: {},
                         message: 'Searching the web',
                         name: 'web_search',
-                        start_timestamp: toChatTimestamp(),
+                        start_timestamp: toolUseStartTimestamp,
                         stop_timestamp: null,
                         type: 'tool_use',
                       },
@@ -99,6 +165,15 @@ export const Route = createFileRoute(
                 ) {
                   return
                 }
+
+                mutateConversation(params.conversationId, (conversation) => {
+                  startToolUseBlock(
+                    conversation,
+                    assistantMessageUuid,
+                    toolUseId,
+                    toolUseStartTimestamp,
+                  )
+                })
 
                 for (const chunk of chunkJson(JSON.stringify({ query }))) {
                   await sleep(180)
@@ -117,9 +192,19 @@ export const Route = createFileRoute(
                   ) {
                     return
                   }
+
+                  toolUseInputJsonBuffer += chunk
+                  updateToolUseInput(
+                    params.conversationId,
+                    assistantMessageUuid,
+                    toolUseId,
+                    toolUseInputJsonBuffer,
+                  )
                 }
 
                 await sleep(900)
+
+                const toolPreviewMessage = `Fetching: ${searchResults[0]?.url ?? query}`
 
                 if (
                   !enqueue(
@@ -128,7 +213,7 @@ export const Route = createFileRoute(
                         display_content: {
                           preview_url: searchResults[0]?.url ?? null,
                         },
-                        message: `Fetching: ${searchResults[0]?.url ?? query}`,
+                        message: toolPreviewMessage,
                         type: 'tool_use_block_update_delta',
                       },
                       index: 0,
@@ -139,13 +224,27 @@ export const Route = createFileRoute(
                   return
                 }
 
+                mutateConversation(params.conversationId, (conversation) => {
+                  updateToolUseMessage(
+                    conversation,
+                    assistantMessageUuid,
+                    toolUseId,
+                    toolPreviewMessage,
+                    {
+                      preview_url: searchResults[0]?.url ?? null,
+                    },
+                  )
+                })
+
                 await sleep(900)
+
+                const toolUseStopTimestamp = toChatTimestamp()
 
                 if (
                   !enqueue(
                     formatSseEvent('content_block_stop', {
                       index: 0,
-                      stop_timestamp: toChatTimestamp(),
+                      stop_timestamp: toolUseStopTimestamp,
                       type: 'content_block_stop',
                     }),
                   )
@@ -153,7 +252,19 @@ export const Route = createFileRoute(
                   return
                 }
 
+                mutateConversation(params.conversationId, (conversation) => {
+                  stopContentBlock(
+                    conversation,
+                    assistantMessageUuid,
+                    0,
+                    toolUseStopTimestamp,
+                  )
+                })
+
                 await sleep(700)
+
+                const toolResultStartTimestamp = toChatTimestamp()
+                const toolResultMessage = `Found ${searchResults.length} sources`
 
                 if (
                   !enqueue(
@@ -163,9 +274,9 @@ export const Route = createFileRoute(
                         flags: null,
                         icon_name: 'globe',
                         is_error: false,
-                        message: `Found ${searchResults.length} sources`,
+                        message: toolResultMessage,
                         name: 'web_search',
-                        start_timestamp: toChatTimestamp(),
+                        start_timestamp: toolResultStartTimestamp,
                         stop_timestamp: null,
                         tool_use_id: toolUseId,
                         type: 'tool_result',
@@ -177,6 +288,16 @@ export const Route = createFileRoute(
                 ) {
                   return
                 }
+
+                mutateConversation(params.conversationId, (conversation) => {
+                  startToolResultBlock(
+                    conversation,
+                    assistantMessageUuid,
+                    toolUseId,
+                    toolResultMessage,
+                    toolResultStartTimestamp,
+                  )
+                })
 
                 for (const chunk of chunkJson(JSON.stringify(searchResults))) {
                   await sleep(160)
@@ -195,15 +316,25 @@ export const Route = createFileRoute(
                   ) {
                     return
                   }
+
+                  toolResultDisplayContentJsonBuffer += chunk
+                  updateToolResultDisplayContent(
+                    params.conversationId,
+                    assistantMessageUuid,
+                    toolUseId,
+                    toolResultDisplayContentJsonBuffer,
+                  )
                 }
 
                 await sleep(1000)
+
+                const toolResultStopTimestamp = toChatTimestamp()
 
                 if (
                   !enqueue(
                     formatSseEvent('content_block_stop', {
                       index: 1,
-                      stop_timestamp: toChatTimestamp(),
+                      stop_timestamp: toolResultStopTimestamp,
                       type: 'content_block_stop',
                     }),
                   )
@@ -211,7 +342,18 @@ export const Route = createFileRoute(
                   return
                 }
 
+                mutateConversation(params.conversationId, (conversation) => {
+                  stopToolResultBlock(
+                    conversation,
+                    assistantMessageUuid,
+                    toolUseId,
+                    toolResultStopTimestamp,
+                  )
+                })
+
                 await sleep(650)
+
+                const textBlockStartTimestamp = toChatTimestamp()
 
                 if (
                   !enqueue(
@@ -219,7 +361,7 @@ export const Route = createFileRoute(
                       content_block: {
                         citations: [],
                         flags: null,
-                        start_timestamp: toChatTimestamp(),
+                        start_timestamp: textBlockStartTimestamp,
                         stop_timestamp: null,
                         text: '',
                         type: 'text',
@@ -231,6 +373,14 @@ export const Route = createFileRoute(
                 ) {
                   return
                 }
+
+                mutateConversation(params.conversationId, (conversation) => {
+                  startTextBlock(
+                    conversation,
+                    assistantMessageUuid,
+                    textBlockStartTimestamp,
+                  )
+                })
 
                 for (const segment of replySegments) {
                   if (segment.type === 'citation_start') {
@@ -251,6 +401,10 @@ export const Route = createFileRoute(
                       return
                     }
 
+                    openCitations.set(segment.citation.uuid, {
+                      citation: segment.citation,
+                      startIndex: textLength,
+                    })
                     continue
                   }
 
@@ -270,6 +424,19 @@ export const Route = createFileRoute(
                       )
                     ) {
                       return
+                    }
+
+                    const openCitation = openCitations.get(segment.citationUuid)
+
+                    if (openCitation) {
+                      openCitations.delete(segment.citationUuid)
+                      mutateConversation(params.conversationId, (conversation) => {
+                        addCitationToTextBlock(conversation, assistantMessageUuid, {
+                          ...openCitation.citation,
+                          end_index: textLength,
+                          start_index: openCitation.startIndex,
+                        })
+                      })
                     }
 
                     continue
@@ -292,22 +459,38 @@ export const Route = createFileRoute(
                     ) {
                       return
                     }
+
+                    textLength += chunk.length
+                    mutateConversation(params.conversationId, (conversation) => {
+                      appendTextDelta(conversation, assistantMessageUuid, chunk)
+                    })
                   }
                 }
 
                 await sleep(180)
 
+                const textBlockStopTimestamp = toChatTimestamp()
+
                 if (
                   !enqueue(
                     formatSseEvent('content_block_stop', {
                       index: 2,
-                      stop_timestamp: toChatTimestamp(),
+                      stop_timestamp: textBlockStopTimestamp,
                       type: 'content_block_stop',
                     }),
                   )
                 ) {
                   return
                 }
+
+                mutateConversation(params.conversationId, (conversation) => {
+                  stopContentBlock(
+                    conversation,
+                    assistantMessageUuid,
+                    2,
+                    textBlockStopTimestamp,
+                  )
+                })
 
                 await sleep(120)
 
@@ -325,33 +508,30 @@ export const Route = createFileRoute(
                   return
                 }
 
+                mutateConversation(params.conversationId, (conversation) => {
+                  finishAssistantMessage(
+                    conversation,
+                    assistantMessageUuid,
+                    textBlockStopTimestamp,
+                  )
+                })
+
                 await sleep(120)
 
                 if (
                   !enqueue(
                     formatSseEvent('message_limit', {
-                      message_limit: {
-                        overageDisabledReason: 'overage_not_provisioned',
-                        overageInUse: false,
-                        perModelLimit: null,
-                        remaining: null,
-                        representativeClaim: 'five_hour',
-                        resetsAt: null,
-                        type: 'within_limit',
-                        windows: {
-                          '5h': {
-                            resets_at: 1773039600,
-                            status: 'within_limit',
-                            utilization: 0.01,
-                          },
-                        },
-                      },
+                      message_limit: buildMessageLimit(),
                       type: 'message_limit',
                     }),
                   )
                 ) {
                   return
                 }
+
+                mutateConversation(params.conversationId, (conversation) => {
+                  attachMessageLimit(conversation, assistantMessageUuid)
+                })
 
                 await sleep(20)
 
@@ -384,6 +564,445 @@ export const Route = createFileRoute(
     },
   },
 })
+
+function appendMessageToConversation(
+  conversation: ChatConversationDetail,
+  message: NewChatMessage,
+) {
+  const nextIndex = Object.values(conversation.mapping).reduce(
+    (maxIndex, node) => Math.max(maxIndex, node.message?.index ?? -1),
+    -1,
+  ) + 1
+  const indexedMessage: ChatMessage = {
+    ...message,
+    index: nextIndex,
+  }
+
+  conversation.mapping[indexedMessage.uuid] = {
+    child_uuids: [],
+    message: indexedMessage,
+    parent_uuid: indexedMessage.parent_message_uuid,
+    uuid: indexedMessage.uuid,
+  }
+
+  const parentNode = conversation.mapping[indexedMessage.parent_message_uuid]
+
+  if (parentNode && !parentNode.child_uuids.includes(indexedMessage.uuid)) {
+    parentNode.child_uuids.push(indexedMessage.uuid)
+  }
+}
+
+function createPendingAssistantMessage({
+  model,
+  parentUuid,
+  uuid,
+}: {
+  model: string
+  parentUuid: string
+  uuid: string
+}) {
+  const timestamp = toChatTimestamp()
+
+  return {
+    content: [],
+    created_at: timestamp,
+    files: [],
+    metadata: {},
+    model,
+    parent_message_uuid: parentUuid,
+    role: 'assistant',
+    stop_reason: null,
+    updated_at: timestamp,
+    uuid,
+  } satisfies NewChatMessage
+}
+
+function getMessage(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+) {
+  return conversation.mapping[messageUuid]?.message ?? null
+}
+
+function getToolUseBlock(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  toolUseId: string,
+) {
+  const message = getMessage(conversation, messageUuid)
+
+  return (
+    message?.content.find(
+      (block): block is ChatToolUseContent =>
+        block.type === 'tool_use' && block.id === toolUseId,
+    ) ?? null
+  )
+}
+
+function startToolUseBlock(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  toolUseId: string,
+  startTimestamp: string,
+) {
+  const message = getMessage(conversation, messageUuid)
+
+  if (!message) {
+    return
+  }
+
+  message.content[0] = {
+    display_content: null,
+    icon_name: 'globe',
+    id: toolUseId,
+    input: {},
+    message: 'Searching the web',
+    name: 'web_search',
+    start_timestamp: startTimestamp,
+    stop_timestamp: null,
+    tool_result: null,
+    type: 'tool_use',
+  }
+  message.updated_at = startTimestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: startTimestamp,
+  })
+}
+
+function updateToolUseInput(
+  conversationId: string,
+  messageUuid: string,
+  toolUseId: string,
+  inputBuffer: string,
+) {
+  let parsedInput: Record<string, unknown> | null | undefined
+
+  try {
+    parsedInput = JSON.parse(inputBuffer) as Record<string, unknown> | null
+  } catch {
+    return
+  }
+
+  mutateConversation(conversationId, (conversation) => {
+    const toolUseBlock = getToolUseBlock(conversation, messageUuid, toolUseId)
+
+    if (!toolUseBlock) {
+      return
+    }
+
+    const timestamp = toChatTimestamp()
+
+    toolUseBlock.input = parsedInput ?? null
+    conversation.mapping[messageUuid]!.message!.updated_at = timestamp
+    updateConversationSummaryFields(conversation, {
+      currentLeafMessageUuid: messageUuid,
+      updatedAt: timestamp,
+    })
+  })
+}
+
+function updateToolUseMessage(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  toolUseId: string,
+  messageText: string,
+  displayContent: unknown,
+) {
+  const toolUseBlock = getToolUseBlock(conversation, messageUuid, toolUseId)
+
+  if (!toolUseBlock) {
+    return
+  }
+
+  const timestamp = toChatTimestamp()
+
+  toolUseBlock.message = messageText
+  toolUseBlock.display_content = displayContent
+  conversation.mapping[messageUuid]!.message!.updated_at = timestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: timestamp,
+  })
+}
+
+function startToolResultBlock(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  toolUseId: string,
+  messageText: string,
+  startTimestamp: string,
+) {
+  const toolUseBlock = getToolUseBlock(conversation, messageUuid, toolUseId)
+
+  if (!toolUseBlock) {
+    return
+  }
+
+  toolUseBlock.tool_result = {
+    display_content: null,
+    icon_name: 'globe',
+    is_error: false,
+    message: messageText,
+    name: 'web_search',
+    start_timestamp: startTimestamp,
+    stop_timestamp: null,
+    tool_use_id: toolUseId,
+    type: 'tool_result',
+  }
+  toolUseBlock.stop_timestamp = null
+  conversation.mapping[messageUuid]!.message!.updated_at = startTimestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: startTimestamp,
+  })
+}
+
+function updateToolResultDisplayContent(
+  conversationId: string,
+  messageUuid: string,
+  toolUseId: string,
+  displayContentBuffer: string,
+) {
+  let parsedDisplayContent: unknown
+
+  try {
+    parsedDisplayContent = JSON.parse(displayContentBuffer)
+  } catch {
+    return
+  }
+
+  mutateConversation(conversationId, (conversation) => {
+    const toolUseBlock = getToolUseBlock(conversation, messageUuid, toolUseId)
+    const toolResult = toolUseBlock?.tool_result
+
+    if (!toolUseBlock || !toolResult) {
+      return
+    }
+
+    const timestamp = toChatTimestamp()
+
+    toolResult.display_content = parsedDisplayContent
+    conversation.mapping[messageUuid]!.message!.updated_at = timestamp
+    updateConversationSummaryFields(conversation, {
+      currentLeafMessageUuid: messageUuid,
+      updatedAt: timestamp,
+    })
+  })
+}
+
+function startTextBlock(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  startTimestamp: string,
+) {
+  const message = getMessage(conversation, messageUuid)
+
+  if (!message) {
+    return
+  }
+
+  message.content.push({
+    citations: [],
+    start_timestamp: startTimestamp,
+    stop_timestamp: null,
+    text: '',
+    type: 'text',
+  })
+  message.updated_at = startTimestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: startTimestamp,
+  })
+}
+
+function appendTextDelta(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  chunk: string,
+) {
+  const message = getMessage(conversation, messageUuid)
+  const textBlock = message?.content.find(
+    (block): block is Extract<ChatMessage['content'][number], { type: 'text' }> =>
+      block != null && block.type === 'text',
+  )
+
+  if (!message || !textBlock || textBlock.type !== 'text') {
+    return
+  }
+
+  const timestamp = toChatTimestamp()
+
+  textBlock.text += chunk
+  message.updated_at = timestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: timestamp,
+  })
+}
+
+function addCitationToTextBlock(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  citation: ChatCitation,
+) {
+  const message = getMessage(conversation, messageUuid)
+  const textBlock = message?.content.find(
+    (block): block is Extract<ChatMessage['content'][number], { type: 'text' }> =>
+      block != null && block.type === 'text',
+  )
+
+  if (!message || !textBlock || textBlock.type !== 'text') {
+    return
+  }
+
+  const timestamp = toChatTimestamp()
+
+  textBlock.citations.push(citation)
+  message.updated_at = timestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: timestamp,
+  })
+}
+
+function stopContentBlock(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  index: number,
+  stopTimestamp: string,
+) {
+  const message = getMessage(conversation, messageUuid)
+  const block =
+    message?.content[index] ??
+    (index === 2
+      ? message?.content.find(
+          (entry): entry is ChatMessage['content'][number] =>
+            entry != null && entry.type === 'text',
+        )
+      : null)
+
+  if (!message || !block) {
+    return
+  }
+
+  block.stop_timestamp = stopTimestamp
+  message.updated_at = stopTimestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: stopTimestamp,
+  })
+}
+
+function stopToolResultBlock(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  toolUseId: string,
+  stopTimestamp: string,
+) {
+  const toolUseBlock = getToolUseBlock(conversation, messageUuid, toolUseId)
+  const toolResult = toolUseBlock?.tool_result
+
+  if (!toolUseBlock || !toolResult) {
+    return
+  }
+
+  toolResult.stop_timestamp = stopTimestamp
+  toolUseBlock.stop_timestamp = stopTimestamp
+  conversation.mapping[messageUuid]!.message!.updated_at = stopTimestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: stopTimestamp,
+  })
+}
+
+function finishAssistantMessage(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+  stopTimestamp: string,
+) {
+  const message = getMessage(conversation, messageUuid)
+
+  if (!message) {
+    return
+  }
+
+  message.stop_reason = 'end_turn'
+  message.updated_at = stopTimestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: stopTimestamp,
+  })
+}
+
+function attachMessageLimit(
+  conversation: ChatConversationDetail,
+  messageUuid: string,
+) {
+  const message = getMessage(conversation, messageUuid)
+
+  if (!message) {
+    return
+  }
+
+  const timestamp = toChatTimestamp()
+
+  message.metadata = {
+    ...message.metadata,
+    message_limit: buildMessageLimit(),
+  }
+  message.updated_at = timestamp
+  updateConversationSummaryFields(conversation, {
+    currentLeafMessageUuid: messageUuid,
+    updatedAt: timestamp,
+  })
+}
+
+function persistAbort(conversationId: string, messageUuid: string) {
+  mutateConversation(conversationId, (conversation) => {
+    const message = getMessage(conversation, messageUuid)
+
+    if (!message) {
+      return
+    }
+
+    const timestamp = toChatTimestamp()
+
+    for (const block of message.content) {
+      block.stop_timestamp ??= timestamp
+
+      if (block.type === 'tool_use' && block.tool_result) {
+        block.tool_result.stop_timestamp ??= timestamp
+      }
+    }
+
+    message.stop_reason = 'user_canceled'
+    message.updated_at = timestamp
+    updateConversationSummaryFields(conversation, {
+      currentLeafMessageUuid: messageUuid,
+      updatedAt: timestamp,
+    })
+  })
+}
+
+function buildMessageLimit() {
+  return {
+    overageDisabledReason: 'overage_not_provisioned',
+    overageInUse: false,
+    perModelLimit: null,
+    remaining: null,
+    representativeClaim: 'five_hour',
+    resetsAt: null,
+    type: 'within_limit',
+    windows: {
+      '5h': {
+        resets_at: 1773039600,
+        status: 'within_limit',
+        utilization: 0.01,
+      },
+    },
+  }
+}
 
 function chunkText(text: string) {
   if (text.length === 0) {

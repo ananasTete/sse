@@ -1,656 +1,121 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { ArrowUp } from 'lucide-react'
+import type { FormEvent } from 'react'
+import { useState } from 'react'
+import { v7 as generateTimeOrderedUuid } from 'uuid'
+import { ConversationComposer } from '#/features/chat/components/conversation-composer'
 import {
-	ArrowUp,
-	Check,
-	ChevronLeft,
-	ChevronRight,
-	Mic,
-	Pencil,
-	RotateCcw,
-	Square,
-	X,
-} from "lucide-react";
-import type { FormEvent } from "react";
-import { useEffect, useRef, useState } from "react";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "#/components/ui/select";
-import { MessageContent } from "#/features/chat/components/message-content";
-import { AVAILABLE_MODELS, DEFAULT_MODEL } from "#/features/chat/constants";
-import type { ChatContent } from "#/features/chat/types";
-import { useChat } from "#/features/chat/use-chat";
-import { useVoiceComposer } from "#/features/chat/use-voice-composer";
-import { cn } from "#/lib/utils";
+  buildConversationDetailSnapshot,
+  buildConversationTitleFromPrompt,
+  conversationKeys,
+  createChatConversation,
+  upsertConversationListCache,
+} from '#/features/chat/conversation-client'
+import { DEFAULT_MODEL } from '#/features/chat/constants'
+import { setPendingInitialSubmission } from '#/features/chat/pending-initial-submission'
 
-export const Route = createFileRoute("/")({ component: App });
+export const Route = createFileRoute('/')({ component: LandingPage })
 
-function getMessageText(text: string) {
-	return text.trim() || " ";
-}
+function LandingPage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const [input, setInput] = useState('')
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL)
+  const createConversationMutation = useMutation({
+    mutationFn: createChatConversation,
+  })
 
-function getTextContent(blocks: ChatContent[]) {
-	return blocks
-		.filter(
-			(block): block is Extract<ChatContent, { type: "text" }> =>
-				block.type === "text",
-		)
-		.map((block) => block.text)
-		.join("");
-}
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setFeedback(null)
 
-function App() {
-	const {
-		appendInput,
-		editUserMessage,
-		getBranchState,
-		input,
-		messages,
-		onInputChange,
-		regenerate,
-		regenerateUserMessage,
-		selectBranch,
-		sendMessage,
-		status,
-		stop,
-	} = useChat();
-	const [editingMessageUuid, setEditingMessageUuid] = useState<string | null>(
-		null,
-	);
-	const [editingPrompt, setEditingPrompt] = useState("");
-	const [expandedToolBlocks, setExpandedToolBlocks] = useState<
-		Record<string, boolean>
-	>({});
-	const [feedback, setFeedback] = useState<string | null>(null);
-	const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
-	const transcriptRef = useRef<HTMLDivElement | null>(null);
-	const {
-		canConfirm,
-		close: closeVoiceComposer,
-		confirm: confirmVoiceComposer,
-		errorMessage: voiceComposerErrorMessage,
-		isOpen: isVoiceComposerOpen,
-		open: openVoiceComposer,
-		status: voiceComposerStatus,
-		statusText: voiceComposerStatusText,
-	} = useVoiceComposer();
-	const isBusy = status === "streaming" || status === "submitted";
-	const isComposerLocked = isBusy || isVoiceComposerOpen;
-	const lastMessageUpdatedAt =
-		messages[messages.length - 1]?.updated_at ?? null;
-	const statusLabel =
-		status === "submitted"
-			? "waiting"
-			: status === "streaming"
-				? "streaming"
-				: status === "error"
-					? "error"
-					: "ready";
+    const prompt = input.trim()
 
-	useEffect(() => {
-		if (!lastMessageUpdatedAt && status === "ready") {
-			return;
-		}
+    if (!prompt) {
+      setFeedback('Prompt cannot be empty.')
+      return
+    }
 
-		const container = transcriptRef.current;
+    const conversationId = generateTimeOrderedUuid()
 
-		if (!container) {
-			return;
-		}
+    try {
+      const createdConversation = await createConversationMutation.mutateAsync({
+        uuid: conversationId,
+      })
+      const cachedTitle = buildConversationTitleFromPrompt(prompt)
 
-		container.scrollTo({
-			behavior: "smooth",
-			top: container.scrollHeight,
-		});
-	}, [lastMessageUpdatedAt, status]);
+      queryClient.setQueryData(
+        conversationKeys.detail(conversationId),
+        buildConversationDetailSnapshot({
+          summary: createdConversation,
+          title: cachedTitle,
+        }),
+      )
+      upsertConversationListCache(queryClient, {
+        ...createdConversation,
+        title: cachedTitle,
+      })
+      setPendingInitialSubmission(conversationId, {
+        model: selectedModel,
+        prompt,
+      })
+      await navigate({
+        params: {
+          conversationId,
+        },
+        to: '/chat/$conversationId',
+      })
+    } catch (error) {
+      setFeedback(
+        error instanceof Error ? error.message : 'Failed to create conversation.',
+      )
+    }
+  }
 
-	useEffect(() => {
-		if (!editingMessageUuid) {
-			return;
-		}
+  return (
+    <div className="flex h-full items-center justify-center px-6 py-10">
+      <div className="w-full max-w-3xl">
+        <div className="mb-8 space-y-3 text-center">
+          <div className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-[var(--kicker)]">
+            Conversations
+          </div>
+          <h1 className="font-['Fraunces'] text-4xl text-[var(--sea-ink)] sm:text-5xl">
+            Start a new session
+          </h1>
+          <p className="mx-auto max-w-2xl text-sm leading-7 text-[var(--sea-ink-soft)] sm:text-base">
+            Create a real conversation record first, then stream the opening
+            prompt into its dedicated route.
+          </p>
+        </div>
 
-		const hasEditingMessage = messages.some(
-			(message) => message.uuid === editingMessageUuid,
-		);
-
-		if (!hasEditingMessage) {
-			setEditingMessageUuid(null);
-			setEditingPrompt("");
-		}
-	}, [editingMessageUuid, messages]);
-
-	const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-		event.preventDefault();
-		setFeedback(null);
-
-		try {
-			await sendMessage({
-				model: selectedModel,
-				prompt: input,
-			});
-		} catch (error) {
-			setFeedback(
-				error instanceof Error ? error.message : "Chat request failed.",
-			);
-		}
-	};
-
-	const handleStop = () => {
-		setFeedback(null);
-		stop();
-	};
-
-	const handleOpenVoiceComposer = () => {
-		setFeedback(null);
-		void openVoiceComposer();
-	};
-
-	const handleCloseVoiceComposer = () => {
-		closeVoiceComposer();
-	};
-
-	const handleConfirmVoiceComposer = async () => {
-		setFeedback(null);
-
-		const text = await confirmVoiceComposer();
-
-		if (text) {
-			appendInput(text);
-		}
-	};
-
-	const handleRegenerate = async (assistantMessageUuid: string) => {
-		setFeedback(null);
-
-		try {
-			await regenerate(assistantMessageUuid);
-		} catch (error) {
-			setFeedback(
-				error instanceof Error ? error.message : "Chat request failed.",
-			);
-		}
-	};
-
-	const handleRegenerateUserMessage = async (userMessageUuid: string) => {
-		setFeedback(null);
-
-		try {
-			await regenerateUserMessage(userMessageUuid);
-		} catch (error) {
-			setFeedback(
-				error instanceof Error ? error.message : "Chat request failed.",
-			);
-		}
-	};
-
-	const handleBranchSelect = (assistantMessageUuid: string) => {
-		setFeedback(null);
-
-		try {
-			selectBranch(assistantMessageUuid);
-		} catch (error) {
-			setFeedback(
-				error instanceof Error ? error.message : "Branch selection failed.",
-			);
-		}
-	};
-
-	const handleStartEdit = (messageUuid: string, prompt: string) => {
-		setFeedback(null);
-		setEditingMessageUuid(messageUuid);
-		setEditingPrompt(prompt);
-	};
-
-	const handleCancelEdit = () => {
-		setEditingMessageUuid(null);
-		setEditingPrompt("");
-	};
-
-	const handleConfirmEdit = async (message: (typeof messages)[number]) => {
-		setFeedback(null);
-
-		try {
-			await editUserMessage(message.uuid, {
-				model: selectedModel,
-				prompt: editingPrompt,
-			});
-			setEditingMessageUuid(null);
-			setEditingPrompt("");
-		} catch (error) {
-			setFeedback(
-				error instanceof Error ? error.message : "Chat request failed.",
-			);
-		}
-	};
-
-	const handleToggleToolBlock = (toolUseId: string) => {
-		setExpandedToolBlocks((current) => ({
-			...current,
-			[toolUseId]: !(current[toolUseId] ?? false),
-		}));
-	};
-
-	return (
-		<main className="h-screen overflow-hidden bg-[var(--bg-base)] text-[var(--sea-ink)]">
-			<div className="mx-auto flex h-full max-w-4xl flex-col px-4 py-4">
-				<header className="flex items-center justify-between border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm">
-					<div className="flex items-center gap-3">
-						<span className="font-semibold">Chat</span>
-						<span className="text-[var(--sea-ink-soft)]">
-							{messages.length} messages
-						</span>
-					</div>
-					<span className="font-medium text-[var(--sea-ink-soft)]">
-						{statusLabel}
-					</span>
-				</header>
-
-				<section className="flex min-h-0 flex-1 flex-col overflow-hidden border border-t-0 border-[var(--line)] bg-[var(--surface)]">
-					<div
-						className="flex-1 space-y-4 overflow-y-auto px-3 py-3"
-						ref={transcriptRef}
-					>
-						{messages.length ? (
-							messages.map((message, index) => {
-								const rawText = getTextContent(message.content);
-								const text = getMessageText(rawText);
-								const isUser = message.role === "user";
-								const isAssistant = message.role === "assistant";
-								const isEditingUserMessage =
-									isUser && editingMessageUuid === message.uuid;
-								const branchChildUuids =
-									isAssistant || isUser
-										? getBranchState(message.parent_message_uuid)
-										: [];
-								const branchIndex = branchChildUuids.indexOf(message.uuid);
-								const previousBranchUuid =
-									branchIndex > 0 ? branchChildUuids[branchIndex - 1] : null;
-								const nextBranchUuid =
-									branchIndex >= 0 && branchIndex < branchChildUuids.length - 1
-										? branchChildUuids[branchIndex + 1]
-										: null;
-								const isStreamingMessage =
-									isAssistant &&
-									isBusy &&
-									index === messages.length - 1 &&
-									message.stop_reason === null;
-
-								return (
-									<article
-										className={cn(
-											"flex w-full",
-											isAssistant ? "justify-start" : "justify-end",
-										)}
-										key={message.uuid}
-									>
-										<div
-											className={cn(
-												"border px-4 py-3",
-												isEditingUserMessage
-													? "w-full"
-													: "max-w-[min(42rem,92%)]",
-												isAssistant
-													? "border-[var(--line)] bg-[var(--surface-strong)]"
-													: "border-[var(--line)] bg-[rgba(47,106,74,0.08)]",
-											)}
-										>
-											{isEditingUserMessage ? (
-												<div>
-													<textarea
-														className="min-h-28 w-full resize-y border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[0.95rem] leading-7 text-[var(--sea-ink)] outline-none"
-														onChange={(event) => {
-															setEditingPrompt(event.target.value);
-														}}
-														value={editingPrompt}
-													/>
-												</div>
-											) : isAssistant ? (
-												<MessageContent
-													blocks={message.content}
-													expandedToolBlocks={expandedToolBlocks}
-													isStreamingMessage={isStreamingMessage}
-													onToggleToolBlock={handleToggleToolBlock}
-												/>
-											) : (
-												<p className="whitespace-pre-wrap text-[0.95rem] leading-7 text-[var(--sea-ink)]">
-													{text}
-												</p>
-											)}
-
-											{isUser ? (
-												<div className="mt-3 flex items-center gap-3 border-t border-[var(--line)] pt-3 text-[0.72rem] text-[var(--sea-ink-soft)]">
-													{isEditingUserMessage ? (
-														<>
-															<button
-																className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
-																disabled={isBusy}
-																onClick={handleCancelEdit}
-																type="button"
-															>
-																<X className="size-3.5" />
-																Cancel
-															</button>
-
-															<button
-																className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
-																disabled={isBusy || !editingPrompt.trim()}
-																onClick={() => {
-																	void handleConfirmEdit(message);
-																}}
-																type="button"
-															>
-																<Check className="size-3.5" />
-																Confirm
-															</button>
-														</>
-													) : (
-														<>
-															<button
-																className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
-																disabled={isBusy}
-																onClick={() => {
-																	handleStartEdit(message.uuid, rawText);
-																}}
-																type="button"
-															>
-																<Pencil className="size-3.5" />
-																Edit
-															</button>
-
-															<button
-																className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
-																disabled={isBusy}
-																onClick={() => {
-																	void handleRegenerateUserMessage(
-																		message.uuid,
-																	);
-																}}
-																type="button"
-															>
-																<RotateCcw className="size-3.5" />
-																Regenerate
-															</button>
-														</>
-													)}
-
-													{branchChildUuids.length > 1 ? (
-														<div className="inline-flex items-center gap-1">
-															<button
-																className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-[var(--line)] hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-35"
-																disabled={
-																	!previousBranchUuid ||
-																	isBusy ||
-																	isEditingUserMessage
-																}
-																onClick={() => {
-																	if (!previousBranchUuid) {
-																		return;
-																	}
-
-																	handleBranchSelect(previousBranchUuid);
-																}}
-																type="button"
-															>
-																<ChevronLeft className="size-3.5" />
-															</button>
-
-															<span>
-																{branchIndex + 1}/{branchChildUuids.length}
-															</span>
-
-															<button
-																className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-[var(--line)] hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-35"
-																disabled={
-																	!nextBranchUuid ||
-																	isBusy ||
-																	isEditingUserMessage
-																}
-																onClick={() => {
-																	if (!nextBranchUuid) {
-																		return;
-																	}
-
-																	handleBranchSelect(nextBranchUuid);
-																}}
-																type="button"
-															>
-																<ChevronRight className="size-3.5" />
-															</button>
-														</div>
-													) : null}
-												</div>
-											) : null}
-
-											{isAssistant ? (
-												<div className="mt-3 flex items-center gap-3 border-t border-[var(--line)] pt-3 text-[0.72rem] text-[var(--sea-ink-soft)]">
-													<button
-														className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
-														disabled={isBusy}
-														onClick={() => {
-															void handleRegenerate(message.uuid);
-														}}
-														type="button"
-													>
-														<RotateCcw className="size-3.5" />
-														Regenerate
-													</button>
-
-													{branchChildUuids.length > 1 ? (
-														<div className="inline-flex items-center gap-1">
-															<button
-																className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-[var(--line)] hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-35"
-																disabled={!previousBranchUuid || isBusy}
-																onClick={() => {
-																	if (!previousBranchUuid) {
-																		return;
-																	}
-
-																	handleBranchSelect(previousBranchUuid);
-																}}
-																type="button"
-															>
-																<ChevronLeft className="size-3.5" />
-															</button>
-
-															<span>
-																{branchIndex + 1}/{branchChildUuids.length}
-															</span>
-
-															<button
-																className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-[var(--line)] hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-35"
-																disabled={!nextBranchUuid || isBusy}
-																onClick={() => {
-																	if (!nextBranchUuid) {
-																		return;
-																	}
-
-																	handleBranchSelect(nextBranchUuid);
-																}}
-																type="button"
-															>
-																<ChevronRight className="size-3.5" />
-															</button>
-														</div>
-													) : null}
-												</div>
-											) : null}
-										</div>
-									</article>
-								);
-							})
-						) : (
-							<div className="flex min-h-full items-center justify-center py-12 text-sm text-[var(--sea-ink-soft)]">
-								No messages yet.
-							</div>
-						)}
-					</div>
-
-					<div className="border-t border-[var(--line)] bg-[var(--surface-strong)] p-3">
-						<div className="relative overflow-hidden border border-[var(--line)] bg-white/70 p-2 dark:bg-transparent">
-							{/* TODO: Add file upload UI here. After each upload succeeds,
-							fetch the uploaded file object immediately for preview, and merge
-							that preview state into the pending user message. Submission should
-							continue to call `sendMessage` with only `files: string[]` ids. */}
-							<form className="space-y-3" onSubmit={handleSubmit}>
-								<textarea
-									className="min-h-24 w-full resize-none border border-transparent bg-transparent px-3 py-2 text-[0.95rem] leading-7 text-[var(--sea-ink)] outline-none placeholder:text-[var(--sea-ink-soft)]"
-									disabled={isVoiceComposerOpen}
-									onChange={onInputChange}
-									placeholder="Type a message."
-									value={input}
-								/>
-
-								<div className="flex flex-col gap-3 border-t border-[var(--line)] px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
-									<div className="flex flex-col gap-2">
-										<div className="flex flex-col gap-1.5">
-											<span className="px-2 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
-												Model
-											</span>
-
-											<Select
-												disabled={isComposerLocked}
-												onValueChange={setSelectedModel}
-												value={selectedModel}
-											>
-												<SelectTrigger className="h-10 min-w-64 border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] shadow-none">
-													<SelectValue placeholder="Select a model" />
-												</SelectTrigger>
-												<SelectContent>
-													{AVAILABLE_MODELS.map((model) => (
-														<SelectItem key={model.value} value={model.value}>
-															{model.label}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
-										</div>
-
-										{feedback ? (
-											<div className="px-2 text-sm text-[rgb(153,27,27)]">
-												{feedback}
-											</div>
-										) : isBusy ? (
-											<div className="px-2 text-sm text-[var(--sea-ink-soft)]">
-												Streaming response.
-											</div>
-										) : null}
-									</div>
-
-									<div className="flex items-center gap-2 self-end sm:self-auto">
-										<button
-											className="inline-flex h-10 items-center justify-center border border-[var(--line)] bg-transparent px-4 text-sm font-medium text-[var(--sea-ink)] transition hover:bg-white/50 disabled:cursor-not-allowed disabled:opacity-45"
-											disabled={!isBusy || isVoiceComposerOpen}
-											onClick={handleStop}
-											type="button"
-										>
-											<Square className="mr-2 size-4 fill-current" />
-											Stop
-										</button>
-
-										<button
-											className="inline-flex h-10 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] px-4 text-sm font-medium text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
-											disabled={isComposerLocked}
-											type="submit"
-										>
-											<ArrowUp className="mr-2 size-4" />
-											Send
-										</button>
-
-										<button
-											aria-label="Record voice input"
-											className="inline-flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] transition hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-45"
-											disabled={isComposerLocked}
-											onClick={handleOpenVoiceComposer}
-											type="button"
-										>
-											<Mic className="size-4" />
-										</button>
-									</div>
-								</div>
-							</form>
-
-							{isVoiceComposerOpen ? (
-								<div className="absolute inset-0 z-10 flex flex-col justify-between bg-[rgba(246,245,240,0.96)] px-5 py-4 backdrop-blur-sm">
-									<div className="flex flex-1 items-center justify-center">
-										{voiceComposerStatus === "speaking" ? (
-											<div className="flex max-w-sm flex-col items-center gap-5 text-center">
-												<div className="relative flex h-28 w-28 items-center justify-center">
-													<div className="absolute h-28 w-28 rounded-full bg-[rgba(47,106,74,0.1)] animate-ping" />
-													<div className="absolute h-20 w-20 rounded-full border border-[rgba(47,106,74,0.28)] bg-[rgba(47,106,74,0.12)]" />
-													<div className="relative flex h-14 w-14 items-center justify-center rounded-full border border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--foam)] shadow-[0_12px_30px_rgba(23,58,64,0.24)]">
-														<Mic className="size-5" />
-													</div>
-												</div>
-
-												<div className="space-y-2">
-													<p className="text-base font-semibold tracking-[0.18em] text-[var(--sea-ink)] uppercase">
-														{voiceComposerStatusText}
-													</p>
-													<p className="text-sm leading-6 text-[var(--sea-ink-soft)]">
-														Voice activity detected. Finish the take, then confirm to send it for transcription.
-													</p>
-												</div>
-											</div>
-										) : (
-											<div className="flex max-w-sm flex-col items-center gap-4 text-center">
-												<div
-													className={cn(
-														"flex h-14 w-14 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)]",
-														voiceComposerStatus === "recording"
-															? "animate-pulse"
-															: "",
-													)}
-												>
-													<Mic className="size-5" />
-												</div>
-
-												<div className="space-y-2">
-													<p className="text-base font-semibold text-[var(--sea-ink)]">
-														{voiceComposerStatusText}
-													</p>
-													<p className="text-sm leading-6 text-[var(--sea-ink-soft)]">
-														{voiceComposerErrorMessage
-															? voiceComposerErrorMessage
-															: voiceComposerStatus === "recording"
-																? "Listening for speech. Keyboard input stays locked until this take is closed or confirmed."
-																: "The composer is temporarily reserved for voice capture."}
-													</p>
-												</div>
-											</div>
-										)}
-									</div>
-
-									<div className="flex items-center justify-end gap-2">
-										<button
-											aria-label="Close voice input"
-											className="inline-flex h-11 w-11 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
-											onClick={handleCloseVoiceComposer}
-											type="button"
-										>
-											<X className="size-4" />
-										</button>
-
-										<button
-											aria-label="Confirm voice input"
-											className="inline-flex h-11 w-11 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
-											disabled={!canConfirm}
-											onClick={() => {
-												void handleConfirmVoiceComposer();
-											}}
-											type="button"
-										>
-											<Check className="size-4" />
-										</button>
-									</div>
-								</div>
-							) : null}
-						</div>
-					</div>
-				</section>
-			</div>
-		</main>
-	);
+        <ConversationComposer
+          actions={
+            <button
+              className="inline-flex h-10 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] px-4 text-sm font-medium text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+              disabled={createConversationMutation.isPending}
+              type="submit"
+            >
+              <ArrowUp className="mr-2 size-4" />
+              Start chat
+            </button>
+          }
+          feedback={feedback}
+          onInputChange={(event) => {
+            setInput(event.target.value)
+          }}
+          onSubmit={handleSubmit}
+          placeholder="What do you want to work on?"
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+          statusHint={
+            createConversationMutation.isPending ? 'Creating conversation...' : null
+          }
+          textareaClassName="min-h-32"
+          value={input}
+        />
+      </div>
+    </div>
+  )
 }

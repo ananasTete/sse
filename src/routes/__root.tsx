@@ -1,10 +1,13 @@
 import {
   HeadContent,
   Scripts,
+  Outlet,
   createRootRouteWithContext,
 } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
+import { useState } from 'react'
+import { ConversationSidebar } from '#/features/chat/components/conversation-sidebar'
 import TanStackQueryProvider from '../integrations/tanstack-query/root-provider'
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 import appCss from '../styles.css?url'
@@ -17,6 +20,7 @@ interface MyRouterContext {
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
+  component: RootLayout,
   head: () => ({
     meta: [
       {
@@ -27,7 +31,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'TanStack Start Starter',
+        title: 'Chat Workspace',
       },
     ],
     links: [
@@ -39,6 +43,29 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
   }),
   shellComponent: RootDocument,
 })
+
+function RootLayout() {
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+
+  return (
+    <div className="h-screen overflow-hidden bg-[var(--bg-base)] text-[var(--sea-ink)]">
+      <div className="flex h-full">
+        <ConversationSidebar
+          collapsed={isSidebarCollapsed}
+          onToggleCollapsed={() => {
+            setIsSidebarCollapsed((current) => !current)
+          }}
+        />
+
+        <main className="min-w-0 flex-1 overflow-hidden">
+          <div className="h-full bg-[var(--surface)]">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </div>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
