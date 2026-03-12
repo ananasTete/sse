@@ -89,10 +89,10 @@ export interface ChatMessageMetadata {
 }
 
 export interface ChatMessage {
-  attachments: unknown[]
   content: ChatContent[]
   created_at: string
-  files: unknown[]
+  // Only persisted file ids belong on the message model and completion payload.
+  files: string[]
   index: number
   metadata: ChatMessageMetadata
   model: string
@@ -106,8 +106,7 @@ export interface ChatMessage {
 export type NewChatMessage = Omit<ChatMessage, 'index'>
 
 export interface SendMessageInput {
-  attachments?: unknown[]
-  files?: unknown[]
+  files?: string[]
   model?: string
   parentMessageUuid?: string
   prompt: string
@@ -133,8 +132,7 @@ export interface RegenerateTurnMessageUuids {
 }
 
 export interface SubmitChatCompletionRequest {
-  attachments: unknown[]
-  files: unknown[]
+  files: string[]
   model: string
   parent_message_uuid: string
   prompt: string
@@ -143,8 +141,7 @@ export interface SubmitChatCompletionRequest {
 }
 
 export interface RegenerateChatCompletionRequest {
-  attachments: unknown[]
-  files: unknown[]
+  files: string[]
   model: string
   parent_message_uuid: string
   prompt: string

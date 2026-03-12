@@ -457,6 +457,10 @@ function App() {
 
 					<div className="border-t border-[var(--line)] bg-[var(--surface-strong)] p-3">
 						<div className="border border-[var(--line)] bg-white/70 p-2 dark:bg-transparent">
+							{/* TODO: Add file upload UI here. After each upload succeeds,
+							fetch the uploaded file object immediately for preview, and merge
+							that preview state into the pending user message. Submission should
+							continue to call `sendMessage` with only `files: string[]` ids. */}
 							<form className="space-y-3" onSubmit={handleSubmit}>
 								<textarea
 									className="min-h-24 w-full resize-none border border-transparent bg-transparent px-3 py-2 text-[0.95rem] leading-7 text-[var(--sea-ink)] outline-none placeholder:text-[var(--sea-ink-soft)]"

@@ -49,8 +49,7 @@ interface Message {
   created_at: string;
   updated_at: string;
   stop_reason: "end_turn" | "stop_sequence" | "user_canceled" | null;
-  attachments: unknown[];
-  files: unknown[];
+  files: string[];
   metadata: {
     message_limit?: MessageLimit;
   };
@@ -163,8 +162,7 @@ type sendMessage = (message: SendMessageInput) => Promise<void>;
 
 interface SendMessageInput {
   prompt: string;
-  attachments?: unknown[];
-  files?: unknown[];
+  files?: string[];
   model?: string;
   parentMessageUuid?: string;
 }
@@ -179,6 +177,7 @@ interface SendMessageInput {
   - 不传时，默认挂到当前分支的 `current_leaf_message_uuid` 下。
   - 传入时，在指定父节点下创建新的 user message。
 - `model` 不传时回退默认模型；传入时会同时写进本地 user message 和请求体。
+- `files` 只传文件 id 数组；未来接入上传后，预览对象应单独拉取和维护，不写进 completion 请求体。
 - 首页主输入框会调用 `sendMessage({ prompt, model })`。
 - `sendMessage` 是底层 primitive；“编辑用户消息”会再包一层更明确的 `editUserMessage(...)`。
 - 当 `status` 为 `submitted` 或 `streaming` 时再次调用 `sendMessage`，直接抛错。
@@ -197,7 +196,7 @@ type regenerateUserMessage = (
 约束：
 
 - `regenerateUserMessage` 只能对 user 消息调用。
-- 会复用该 user 消息的 `attachments` 和 `files`。
+- 会复用该 user 消息的 `files`。
 - 重新生成时不会创建新的 user 消息。
 - 新 assistant 消息的 `parent_message_uuid` 指向该 user 消息本身。
 - 请求体中的 `trigger` 为 `"regenerate"`。
@@ -312,7 +311,6 @@ type ChatCompletionRequest =
         user_message_uuid: '019cd069-55c3-7190-a212-cac6a56e74ab'
         assistant_message_uuid: '019cd069-55c3-7904-aac3-569c7605069b'
       }
-      attachments: []
       files: []
     }
   | {
@@ -323,7 +321,6 @@ type ChatCompletionRequest =
       turn_message_uuids: {
         assistant_message_uuid: '019cd069-55c3-7904-aac3-569c7605069b'
       }
-      attachments: []
       files: []
     }
 ```
@@ -341,24 +338,25 @@ type ChatCompletionRequest =
 - `turn_message_uuids.user_message_uuid` 和 `turn_message_uuids.assistant_message_uuid` 由 hook 在发送前自动生成。
 - `regenerate` 时不会生成新的 user message uuid，请求体里也不会再传这个字段。
 - message uuid 使用 `uuid` 库的 UUID v7。
-- `attachments` 和 `files` 默认空数组。
+- `files` 默认空数组，且只传文件 id。
 - 当前 mock 服务端会回显请求体中的 `assistant_message_uuid`，但前端流消费仍以 `message_start.message.uuid` 为准。
 - 当前 mock 在 `trigger: "regenerate"` 且 `prompt === ""` 时，会输出一个带 `parent_message_uuid` 的兜底文案，方便观察行为。
 - 当前 mock 会主动插入可见延迟，方便在首页观察 `tool_use` 标题流光、标题切换和展开内容变化。
 
-## 4. files 和 attachments
+## 4. files
 
-当前项目里，两者都只是透传字段，还没有真正分化行为。
+当前项目里，消息和 completion 请求只保留 `files`。
 
-建议语义：
+当前约束：
 
-- `attachments`：消息级附带内容，偏“这条消息带了什么”。
-- `files`：提供给模型读取或处理的文件实体，偏“这次请求要读哪些文件”。
+- `files`：文件 id 数组，表示“这次请求要读哪些文件”。
+- 未来如果接入上传，上传成功后应立刻调用接口拿到上传对象，单独用于本地预览和拼接用户消息展示。
+- completion 接口中的 `files` 仍然只传 id，不传完整文件对象。
 
 当前阶段：
 
-- 二者都作为协议预留字段。
-- 当前 UI、hook、mock SSE 不对它们做不同处理。
+- 不做文件上传。
+- 当前 UI、hook、mock SSE 只透传 `files`。
 
 ## 5. SSE 协议
 
@@ -691,7 +689,7 @@ type ConversationNode = {
 
 发送流程：
 
-1. 调用 `sendMessage({ prompt, attachments, files, model })`。
+1. 调用 `sendMessage({ prompt, files, model })`。
 2. 立即插入本地 user message，并把它挂到当前 `current_leaf_message_uuid` 下，同时把所选模型写入 `message.model`。
 3. 生成本轮 `user_message_uuid` 和 `assistant_message_uuid`。
 4. 组装 `trigger: "submit"` 的请求体并发起 `POST /api/chat_conversations/{conversationId}/completion`。
@@ -706,7 +704,7 @@ type ConversationNode = {
 1. 调用 `regenerateUserMessage(userMessageUuid)`，或调用 `regenerate(assistantMessageUuid)`。
 2. 找到目标 message，并直接读取它自己记录的 `model`。
 3. 如果目标是 assistant，则先回到它的父 user，再继续发 regenerate 请求。
-4. 复用目标 user 消息的 `attachments`、`files`，并把上一步拿到的 `model` 放进请求体。
+4. 复用目标 user 消息的 `files`，并把上一步拿到的 `model` 放进请求体。
 5. 组装 `trigger: "regenerate"` 的请求体，`parent_message_uuid` 取目标 user 的 `uuid`。
 6. 不创建新的 user 消息。
 7. 收到 `message_start` 后，把新 assistant 追加到该 user 节点的 `child_uuids` 中。
@@ -717,8 +715,8 @@ type ConversationNode = {
 1. 用户点击某条 user 消息下方的编辑按钮。
 2. UI 进入编辑态，展示可修改文本的 `textarea`。
 3. 用户确认后调用 `editUserMessage(userMessageUuid, { prompt, model })`，其中 `model` 来自当前输入区选择。
-4. hook 找到原 user 消息，并读取它的 `parent_message_uuid`、`attachments`、`files`。
-5. 内部转调 `sendMessage({ prompt, attachments, files, parentMessageUuid, model })`。
+4. hook 找到原 user 消息，并读取它的 `parent_message_uuid`、`files`。
+5. 内部转调 `sendMessage({ prompt, files, parentMessageUuid, model })`。
 6. 创建新的 user sibling，并立即把它设为该父节点的当前激活分支。
 7. 后续 assistant 继续按普通 `submit` 流程生成。
 

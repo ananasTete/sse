@@ -8,15 +8,13 @@ import type {
 } from './types'
 
 export function createUserMessage({
-  attachments,
   files,
   model,
   parentMessageUuid,
   prompt,
   uuid,
 }: {
-  attachments: unknown[]
-  files: unknown[]
+  files: string[]
   model: string
   parentMessageUuid: string
   prompt: string
@@ -25,7 +23,6 @@ export function createUserMessage({
   const timestamp = toChatTimestamp()
 
   return {
-    attachments,
     content: [
       {
         citations: [],
@@ -53,7 +50,6 @@ export function createAssistantMessage(
   const timestamp = toChatTimestamp()
 
   return {
-    attachments: [],
     content: [],
     created_at: timestamp,
     files: [],

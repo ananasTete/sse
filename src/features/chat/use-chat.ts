@@ -118,7 +118,6 @@ export function useChat(): UseChatResult {
   }
 
   const sendMessage = async ({
-    attachments = [],
     files = [],
     model,
     parentMessageUuid: inputParentMessageUuid,
@@ -142,7 +141,6 @@ export function useChat(): UseChatResult {
 
     dispatch({
       message: createUserMessage({
-        attachments,
         files,
         model: messageModel,
         parentMessageUuid,
@@ -159,9 +157,11 @@ export function useChat(): UseChatResult {
     }
 
     try {
+      // TODO: When uploads are wired in, fetch each uploaded file object
+      // immediately after upload for local preview and pending-message rendering.
+      // The completion API should still receive only `files: string[]` ids here.
       await runCompletionRequest(
         {
-          attachments,
           files,
           model: messageModel,
           parent_message_uuid: parentMessageUuid,
@@ -222,7 +222,6 @@ export function useChat(): UseChatResult {
     try {
       await runCompletionRequest(
         {
-          attachments: parentMessage.attachments,
           files: parentMessage.files,
           model: input?.model ?? parentMessage.model ?? DEFAULT_MODEL,
           parent_message_uuid: parentMessage.uuid,
@@ -266,7 +265,6 @@ export function useChat(): UseChatResult {
     }
 
     await sendMessage({
-      attachments: userMessage.attachments,
       files: userMessage.files,
       model: input.model,
       parentMessageUuid: userMessage.parent_message_uuid,
