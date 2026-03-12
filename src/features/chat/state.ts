@@ -32,6 +32,10 @@ export type ChatAction =
       type: 'input-changed'
     }
   | {
+      text: string
+      type: 'input-appended'
+    }
+  | {
       message: NewChatMessage
       type: 'request-message-added'
     }
@@ -266,6 +270,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     switch (action.type) {
       case 'input-changed':
         draft.input = action.input
+        return
+
+      case 'input-appended':
+        draft.input = draft.input
+          ? `${draft.input}${draft.input.endsWith('\n') ? '' : '\n'}${action.text}`
+          : action.text
         return
 
       case 'request-submitted':

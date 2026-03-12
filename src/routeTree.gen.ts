@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiSttTranscriptionsRouteImport } from './routes/api/stt/transcriptions'
 import { Route as ApiChat_conversationsConversationIdCompletionRouteImport } from './routes/api/chat_conversations/$conversationId/completion'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSttTranscriptionsRoute = ApiSttTranscriptionsRouteImport.update({
+  id: '/api/stt/transcriptions',
+  path: '/api/stt/transcriptions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChat_conversationsConversationIdCompletionRoute =
@@ -26,27 +32,41 @@ const ApiChat_conversationsConversationIdCompletionRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/stt/transcriptions': typeof ApiSttTranscriptionsRoute
   '/api/chat_conversations/$conversationId/completion': typeof ApiChat_conversationsConversationIdCompletionRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/stt/transcriptions': typeof ApiSttTranscriptionsRoute
   '/api/chat_conversations/$conversationId/completion': typeof ApiChat_conversationsConversationIdCompletionRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/stt/transcriptions': typeof ApiSttTranscriptionsRoute
   '/api/chat_conversations/$conversationId/completion': typeof ApiChat_conversationsConversationIdCompletionRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/chat_conversations/$conversationId/completion'
+  fullPaths:
+    | '/'
+    | '/api/stt/transcriptions'
+    | '/api/chat_conversations/$conversationId/completion'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/chat_conversations/$conversationId/completion'
-  id: '__root__' | '/' | '/api/chat_conversations/$conversationId/completion'
+  to:
+    | '/'
+    | '/api/stt/transcriptions'
+    | '/api/chat_conversations/$conversationId/completion'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/stt/transcriptions'
+    | '/api/chat_conversations/$conversationId/completion'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiSttTranscriptionsRoute: typeof ApiSttTranscriptionsRoute
   ApiChat_conversationsConversationIdCompletionRoute: typeof ApiChat_conversationsConversationIdCompletionRoute
 }
 
@@ -57,6 +77,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/stt/transcriptions': {
+      id: '/api/stt/transcriptions'
+      path: '/api/stt/transcriptions'
+      fullPath: '/api/stt/transcriptions'
+      preLoaderRoute: typeof ApiSttTranscriptionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chat_conversations/$conversationId/completion': {
@@ -71,6 +98,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiSttTranscriptionsRoute: ApiSttTranscriptionsRoute,
   ApiChat_conversationsConversationIdCompletionRoute:
     ApiChat_conversationsConversationIdCompletionRoute,
 }

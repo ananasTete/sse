@@ -4,6 +4,7 @@ import {
 	Check,
 	ChevronLeft,
 	ChevronRight,
+	Mic,
 	Pencil,
 	RotateCcw,
 	Square,
@@ -22,6 +23,7 @@ import { MessageContent } from "#/features/chat/components/message-content";
 import { AVAILABLE_MODELS, DEFAULT_MODEL } from "#/features/chat/constants";
 import type { ChatContent } from "#/features/chat/types";
 import { useChat } from "#/features/chat/use-chat";
+import { useVoiceComposer } from "#/features/chat/use-voice-composer";
 import { cn } from "#/lib/utils";
 
 export const Route = createFileRoute("/")({ component: App });
@@ -42,6 +44,7 @@ function getTextContent(blocks: ChatContent[]) {
 
 function App() {
 	const {
+		appendInput,
 		editUserMessage,
 		getBranchState,
 		input,
@@ -64,7 +67,18 @@ function App() {
 	const [feedback, setFeedback] = useState<string | null>(null);
 	const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
 	const transcriptRef = useRef<HTMLDivElement | null>(null);
+	const {
+		canConfirm,
+		close: closeVoiceComposer,
+		confirm: confirmVoiceComposer,
+		errorMessage: voiceComposerErrorMessage,
+		isOpen: isVoiceComposerOpen,
+		open: openVoiceComposer,
+		status: voiceComposerStatus,
+		statusText: voiceComposerStatusText,
+	} = useVoiceComposer();
 	const isBusy = status === "streaming" || status === "submitted";
+	const isComposerLocked = isBusy || isVoiceComposerOpen;
 	const lastMessageUpdatedAt =
 		messages[messages.length - 1]?.updated_at ?? null;
 	const statusLabel =
@@ -127,6 +141,25 @@ function App() {
 	const handleStop = () => {
 		setFeedback(null);
 		stop();
+	};
+
+	const handleOpenVoiceComposer = () => {
+		setFeedback(null);
+		void openVoiceComposer();
+	};
+
+	const handleCloseVoiceComposer = () => {
+		closeVoiceComposer();
+	};
+
+	const handleConfirmVoiceComposer = async () => {
+		setFeedback(null);
+
+		const text = await confirmVoiceComposer();
+
+		if (text) {
+			appendInput(text);
+		}
 	};
 
 	const handleRegenerate = async (assistantMessageUuid: string) => {
@@ -456,7 +489,7 @@ function App() {
 					</div>
 
 					<div className="border-t border-[var(--line)] bg-[var(--surface-strong)] p-3">
-						<div className="border border-[var(--line)] bg-white/70 p-2 dark:bg-transparent">
+						<div className="relative overflow-hidden border border-[var(--line)] bg-white/70 p-2 dark:bg-transparent">
 							{/* TODO: Add file upload UI here. After each upload succeeds,
 							fetch the uploaded file object immediately for preview, and merge
 							that preview state into the pending user message. Submission should
@@ -464,6 +497,7 @@ function App() {
 							<form className="space-y-3" onSubmit={handleSubmit}>
 								<textarea
 									className="min-h-24 w-full resize-none border border-transparent bg-transparent px-3 py-2 text-[0.95rem] leading-7 text-[var(--sea-ink)] outline-none placeholder:text-[var(--sea-ink-soft)]"
+									disabled={isVoiceComposerOpen}
 									onChange={onInputChange}
 									placeholder="Type a message."
 									value={input}
@@ -477,7 +511,7 @@ function App() {
 											</span>
 
 											<Select
-												disabled={isBusy}
+												disabled={isComposerLocked}
 												onValueChange={setSelectedModel}
 												value={selectedModel}
 											>
@@ -508,7 +542,7 @@ function App() {
 									<div className="flex items-center gap-2 self-end sm:self-auto">
 										<button
 											className="inline-flex h-10 items-center justify-center border border-[var(--line)] bg-transparent px-4 text-sm font-medium text-[var(--sea-ink)] transition hover:bg-white/50 disabled:cursor-not-allowed disabled:opacity-45"
-											disabled={!isBusy}
+											disabled={!isBusy || isVoiceComposerOpen}
 											onClick={handleStop}
 											type="button"
 										>
@@ -518,15 +552,101 @@ function App() {
 
 										<button
 											className="inline-flex h-10 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] px-4 text-sm font-medium text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
-											disabled={isBusy}
+											disabled={isComposerLocked}
 											type="submit"
 										>
 											<ArrowUp className="mr-2 size-4" />
 											Send
 										</button>
+
+										<button
+											aria-label="Record voice input"
+											className="inline-flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] transition hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-45"
+											disabled={isComposerLocked}
+											onClick={handleOpenVoiceComposer}
+											type="button"
+										>
+											<Mic className="size-4" />
+										</button>
 									</div>
 								</div>
 							</form>
+
+							{isVoiceComposerOpen ? (
+								<div className="absolute inset-0 z-10 flex flex-col justify-between bg-[rgba(246,245,240,0.96)] px-5 py-4 backdrop-blur-sm">
+									<div className="flex flex-1 items-center justify-center">
+										{voiceComposerStatus === "speaking" ? (
+											<div className="flex max-w-sm flex-col items-center gap-5 text-center">
+												<div className="relative flex h-28 w-28 items-center justify-center">
+													<div className="absolute h-28 w-28 rounded-full bg-[rgba(47,106,74,0.1)] animate-ping" />
+													<div className="absolute h-20 w-20 rounded-full border border-[rgba(47,106,74,0.28)] bg-[rgba(47,106,74,0.12)]" />
+													<div className="relative flex h-14 w-14 items-center justify-center rounded-full border border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--foam)] shadow-[0_12px_30px_rgba(23,58,64,0.24)]">
+														<Mic className="size-5" />
+													</div>
+												</div>
+
+												<div className="space-y-2">
+													<p className="text-base font-semibold tracking-[0.18em] text-[var(--sea-ink)] uppercase">
+														{voiceComposerStatusText}
+													</p>
+													<p className="text-sm leading-6 text-[var(--sea-ink-soft)]">
+														Voice activity detected. Finish the take, then confirm to send it for transcription.
+													</p>
+												</div>
+											</div>
+										) : (
+											<div className="flex max-w-sm flex-col items-center gap-4 text-center">
+												<div
+													className={cn(
+														"flex h-14 w-14 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)]",
+														voiceComposerStatus === "recording"
+															? "animate-pulse"
+															: "",
+													)}
+												>
+													<Mic className="size-5" />
+												</div>
+
+												<div className="space-y-2">
+													<p className="text-base font-semibold text-[var(--sea-ink)]">
+														{voiceComposerStatusText}
+													</p>
+													<p className="text-sm leading-6 text-[var(--sea-ink-soft)]">
+														{voiceComposerErrorMessage
+															? voiceComposerErrorMessage
+															: voiceComposerStatus === "recording"
+																? "Listening for speech. Keyboard input stays locked until this take is closed or confirmed."
+																: "The composer is temporarily reserved for voice capture."}
+													</p>
+												</div>
+											</div>
+										)}
+									</div>
+
+									<div className="flex items-center justify-end gap-2">
+										<button
+											aria-label="Close voice input"
+											className="inline-flex h-11 w-11 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
+											onClick={handleCloseVoiceComposer}
+											type="button"
+										>
+											<X className="size-4" />
+										</button>
+
+										<button
+											aria-label="Confirm voice input"
+											className="inline-flex h-11 w-11 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+											disabled={!canConfirm}
+											onClick={() => {
+												void handleConfirmVoiceComposer();
+											}}
+											type="button"
+										>
+											<Check className="size-4" />
+										</button>
+									</div>
+								</div>
+							) : null}
 						</div>
 					</div>
 				</section>

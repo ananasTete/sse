@@ -26,6 +26,7 @@ import type {
 } from './types'
 
 export interface UseChatResult {
+  appendInput: (text: string) => void
   getBranchState: (parentMessageUuid: string) => string[]
   input: string
   messages: ReturnType<typeof selectCurrentBranchMessages>
@@ -57,6 +58,19 @@ export function useChat(): UseChatResult {
   const [state, dispatch] = useReducer(chatReducer, initialChatState)
   const activeRequestRef = useRef<ActiveRequest | null>(null) // 当前进行中请求信息，可以取消请求
   const messages = selectCurrentBranchMessages(state)
+
+  const appendInput = (text: string) => {
+    const normalizedText = text.trim()
+
+    if (!normalizedText) {
+      return
+    }
+
+    dispatch({
+      text: normalizedText,
+      type: 'input-appended',
+    })
+  }
 
   const onInputChange: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement> =
     (event) => {
@@ -301,6 +315,7 @@ export function useChat(): UseChatResult {
   }
 
   return {
+    appendInput,
     getBranchState,
     editUserMessage,
     input: state.input,
