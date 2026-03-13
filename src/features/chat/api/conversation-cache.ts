@@ -12,6 +12,7 @@ import { ROOT_PARENT_MESSAGE_UUID } from '../models/constants'
 import type {
   ChatConversationDetail,
   ChatConversationSummary,
+  PendingInitialConversationSubmission,
 } from '../models/conversation'
 import type { ChatState } from '../state/chat-state'
 
@@ -54,5 +55,21 @@ export function isConversationDetailEmpty(
   return (
     detail.current_leaf_message_uuid == null &&
     (rootNode?.child_uuids.length ?? 0) === 0
+  )
+}
+
+export function shouldUsePendingConversationSeed({
+  detail,
+  initialSubmission,
+}: {
+  detail?:
+    | Pick<ChatConversationDetail, 'current_leaf_message_uuid' | 'mapping'>
+    | null
+  initialSubmission?: PendingInitialConversationSubmission | null
+}) {
+  return (
+    initialSubmission != null &&
+    detail != null &&
+    isConversationDetailEmpty(detail)
   )
 }

@@ -38,6 +38,7 @@ export function ConversationView({
   initialCurrentLeafMessageUuid,
   initialMapping,
   initialSubmission,
+  onInitialSubmissionConsumed,
   onConversationChanged,
   title,
 }: {
@@ -45,6 +46,7 @@ export function ConversationView({
   initialCurrentLeafMessageUuid: string | null
   initialMapping: ChatState['mapping']
   initialSubmission?: PendingInitialConversationSubmission | null
+  onInitialSubmissionConsumed?: () => void
   onConversationChanged?: () => void | Promise<void>
   title: string
 }) {
@@ -125,12 +127,13 @@ export function ConversationView({
     }
 
     initialSubmissionRef.current = null
+    onInitialSubmissionConsumed?.()
 
     void sendMessage({
       model: submission.model,
       prompt: submission.prompt,
     })
-  }, [messages.length, sendMessage, status])
+  }, [messages.length, onInitialSubmissionConsumed, sendMessage, status])
 
   const handleSubmit = async ({
     model,

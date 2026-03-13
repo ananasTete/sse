@@ -15,6 +15,8 @@ export const conversationKeys = {
   detail: (conversationId: string) =>
     ['chatConversations', 'detail', conversationId] as const,
   list: () => ['chatConversations', 'list'] as const,
+  pendingSubmission: (conversationId: string) =>
+    ['chatConversations', 'pendingSubmission', conversationId] as const,
 }
 
 // ---------------------------------------------------------------------------

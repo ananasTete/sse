@@ -1,61 +1,55 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { ConversationView } from '#/features/chat/components'
 import {
   conversationKeys,
   fetchChatConversationDetail,
+  shouldUsePendingConversationSeed,
   upsertConversationListCache,
 } from '#/features/chat/api'
 import type {
   ChatConversationDetail,
-  ChatConversationRouteState,
+  PendingInitialConversationSubmission,
 } from '#/features/chat/models'
 
 export const Route = createFileRoute('/chat/$conversationId')({
-  loader: ({ location }) => ({
-    initialSubmission:
-      (location.state as ChatConversationRouteState | undefined)
-        ?.initialSubmission ?? null,
-  }),
   component: ConversationPage,
 })
 
 function ConversationPage() {
   const { conversationId } = Route.useParams()
-  const navigate = Route.useNavigate()
   const queryClient = useQueryClient()
   const detailQueryKey = conversationKeys.detail(conversationId)
-  const { initialSubmission: initialSubmissionFromLoader } =
-    Route.useLoaderData()
-
-  const initialSubmissionRef = useRef(initialSubmissionFromLoader)
-  const initialSubmission = initialSubmissionRef.current
-  const shouldSkipInitialDetailFetchRef = useRef(
-    initialSubmission != null &&
-      queryClient.getQueryData<ChatConversationDetail>(detailQueryKey) != null,
-  )
+  const clearPendingInitialSubmission = () => {
+    queryClient.removeQueries({
+      exact: true,
+      queryKey: conversationKeys.pendingSubmission(conversationId),
+    })
+  }
+  const cachedDetail =
+    queryClient.getQueryData<ChatConversationDetail>(detailQueryKey) ?? null
+  const pendingInitialSubmission =
+    queryClient.getQueryData<PendingInitialConversationSubmission>(
+      conversationKeys.pendingSubmission(conversationId),
+    ) ?? null
+  const initialSubmission = shouldUsePendingConversationSeed({
+    detail: cachedDetail,
+    initialSubmission: pendingInitialSubmission,
+  })
+    ? pendingInitialSubmission
+    : null
 
   useEffect(() => {
-    if (!initialSubmission) {
+    if (!pendingInitialSubmission || initialSubmission) {
       return
     }
 
-    void navigate({
-      params: { conversationId },
-      replace: true,
-      state: (current) => {
-        const { initialSubmission: _initialSubmission, ...rest } =
-          ((current as ChatConversationRouteState | undefined) ?? {})
-
-        return rest
-      },
-      to: '/chat/$conversationId',
-    })
-  }, [conversationId, initialSubmission, navigate])
+    clearPendingInitialSubmission()
+  }, [clearPendingInitialSubmission, initialSubmission, pendingInitialSubmission])
 
   const { data, error, isLoading } = useQuery({
-    enabled: !shouldSkipInitialDetailFetchRef.current,
+    enabled: initialSubmission == null,
     queryFn: () => fetchChatConversationDetail(conversationId),
     queryKey: detailQueryKey,
   })
@@ -75,10 +69,9 @@ function ConversationPage() {
     })
   }
 
-  const resolvedData =
-    data ?? queryClient.getQueryData<ChatConversationDetail>(detailQueryKey)
+  const resolvedData = data ?? cachedDetail
 
-  if (isLoading) {
+  if (isLoading && !resolvedData) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-[var(--sea-ink-soft)]">
         Loading conversation...
@@ -86,7 +79,7 @@ function ConversationPage() {
     )
   }
 
-  if (error || !resolvedData) {
+  if (!resolvedData) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div className="max-w-md space-y-3">
@@ -108,6 +101,7 @@ function ConversationPage() {
       initialCurrentLeafMessageUuid={resolvedData.current_leaf_message_uuid}
       initialMapping={resolvedData.mapping}
       onConversationChanged={refreshConversationCaches}
+      onInitialSubmissionConsumed={clearPendingInitialSubmission}
       initialSubmission={initialSubmission}
       title={resolvedData.title}
     />

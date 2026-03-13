@@ -10,7 +10,7 @@ import {
   createChatConversation,
   upsertConversationListCache,
 } from '#/features/chat/api'
-import type { ChatConversationRouteState } from '#/features/chat/models'
+import type { PendingInitialConversationSubmission } from '#/features/chat/models'
 
 export const Route = createFileRoute('/')({ component: LandingPage })
 
@@ -34,6 +34,10 @@ function LandingPage() {
           title: cachedTitle,
         }),
       )
+      queryClient.setQueryData<PendingInitialConversationSubmission>(
+        conversationKeys.pendingSubmission(conversationId),
+        { model, prompt },
+      )
       // 构建会话记录写入历史记录缓存
       upsertConversationListCache(queryClient, {
         ...createdConversation,
@@ -41,9 +45,6 @@ function LandingPage() {
       })
       navigate({
         params: { conversationId },
-        state: {
-          initialSubmission: { model, prompt },
-        } satisfies ChatConversationRouteState,
         to: '/chat/$conversationId',
       })
     },
@@ -64,7 +65,12 @@ function LandingPage() {
     const abortController = new AbortController()
 
     abortControllerRef.current = abortController
-    mutate({ uuid: conversationId, signal: abortController.signal, model, prompt })
+    mutate({
+      uuid: conversationId,
+      signal: abortController.signal,
+      model,
+      prompt,
+    })
   }
 
   const handleStop = () => {

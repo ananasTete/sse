@@ -26,7 +26,3 @@ export interface PendingInitialConversationSubmission {
   model: string
   prompt: string
 }
-
-export interface ChatConversationRouteState {
-  initialSubmission?: PendingInitialConversationSubmission
-}
