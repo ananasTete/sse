@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import {
   createConversation,
   listConversations,
-} from '#/features/chat/conversation-store'
+} from '#/features/chat/server'
 
 export const Route = createFileRoute('/api/chat_conversations/')({
   server: {

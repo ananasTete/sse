@@ -2,15 +2,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useRef } from 'react'
 import { v7 as generateTimeOrderedUuid } from 'uuid'
-import { ConversationComposerPanel } from '#/features/chat/components/conversation-composer-panel'
+import { ConversationComposer } from '#/features/chat/components'
 import {
   buildConversationDetailSnapshot,
   buildConversationTitleFromPrompt,
   conversationKeys,
   createChatConversation,
   upsertConversationListCache,
-} from '#/features/chat/conversation-client'
-import { setPendingInitialSubmission } from '#/features/chat/pending-initial-submission'
+} from '#/features/chat/api'
+import type { ChatConversationRouteState } from '#/features/chat/models'
 
 export const Route = createFileRoute('/')({ component: LandingPage })
 
@@ -20,19 +20,13 @@ function LandingPage() {
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const { isPending, mutate } = useMutation({
-    mutationFn: ({
-      uuid,
-      signal,
-    }: {
-      uuid: string
-      signal: AbortSignal
-      model: string
-      prompt: string
-    }) => createChatConversation({ uuid, signal }),
+    mutationFn: ({ uuid, signal }: { uuid: string; signal: AbortSignal }) =>
+      createChatConversation({ uuid, signal }),
 
     onSuccess: (createdConversation, { uuid: conversationId, model, prompt }) => {
       const cachedTitle = buildConversationTitleFromPrompt(prompt)
 
+      // 构建会话详情快照写入缓存
       queryClient.setQueryData(
         conversationKeys.detail(conversationId),
         buildConversationDetailSnapshot({
@@ -40,13 +34,16 @@ function LandingPage() {
           title: cachedTitle,
         }),
       )
+      // 构建会话记录写入历史记录缓存
       upsertConversationListCache(queryClient, {
         ...createdConversation,
         title: cachedTitle,
       })
-      setPendingInitialSubmission(conversationId, { model, prompt })
       navigate({
         params: { conversationId },
+        state: {
+          initialSubmission: { model, prompt },
+        } satisfies ChatConversationRouteState,
         to: '/chat/$conversationId',
       })
     },
@@ -91,7 +88,7 @@ function LandingPage() {
           </p>
         </div>
 
-        <ConversationComposerPanel
+        <ConversationComposer
           isPending={isPending}
           onStop={handleStop}
           onSubmit={handleSubmit}

@@ -1,34 +1,82 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
-import { ConversationView } from '#/features/chat/components/conversation-view'
+import { useEffect, useRef } from 'react'
+import { ConversationView } from '#/features/chat/components'
 import {
   conversationKeys,
   fetchChatConversationDetail,
-} from '#/features/chat/conversation-client'
-import type { ChatConversationDetail } from '#/features/chat/conversation-model'
-import { consumePendingInitialSubmission } from '#/features/chat/pending-initial-submission'
+  upsertConversationListCache,
+} from '#/features/chat/api'
+import type {
+  ChatConversationDetail,
+  ChatConversationRouteState,
+} from '#/features/chat/models'
 
 export const Route = createFileRoute('/chat/$conversationId')({
+  loader: ({ location }) => ({
+    initialSubmission:
+      (location.state as ChatConversationRouteState | undefined)
+        ?.initialSubmission ?? null,
+  }),
   component: ConversationPage,
 })
 
 function ConversationPage() {
   const { conversationId } = Route.useParams()
+  const navigate = Route.useNavigate()
   const queryClient = useQueryClient()
-  const [initialSubmission] = useState(() =>
-    consumePendingInitialSubmission(conversationId),
+  const detailQueryKey = conversationKeys.detail(conversationId)
+  const { initialSubmission: initialSubmissionFromLoader } =
+    Route.useLoaderData()
+
+  const initialSubmissionRef = useRef(initialSubmissionFromLoader)
+  const initialSubmission = initialSubmissionRef.current
+  const shouldSkipInitialDetailFetchRef = useRef(
+    initialSubmission != null &&
+      queryClient.getQueryData<ChatConversationDetail>(detailQueryKey) != null,
   )
-  const seededDetail = queryClient.getQueryData<ChatConversationDetail>(
-    conversationKeys.detail(conversationId),
-  )
-  const shouldSkipInitialFetch = Boolean(initialSubmission && seededDetail)
+
+  useEffect(() => {
+    if (!initialSubmission) {
+      return
+    }
+
+    void navigate({
+      params: { conversationId },
+      replace: true,
+      state: (current) => {
+        const { initialSubmission: _initialSubmission, ...rest } =
+          ((current as ChatConversationRouteState | undefined) ?? {})
+
+        return rest
+      },
+      to: '/chat/$conversationId',
+    })
+  }, [conversationId, initialSubmission, navigate])
+
   const { data, error, isLoading } = useQuery({
-    enabled: !shouldSkipInitialFetch,
-    initialData: shouldSkipInitialFetch ? seededDetail : undefined,
+    enabled: !shouldSkipInitialDetailFetchRef.current,
     queryFn: () => fetchChatConversationDetail(conversationId),
-    queryKey: conversationKeys.detail(conversationId),
+    queryKey: detailQueryKey,
   })
+
+  const refreshConversationCaches = async () => {
+    const detail = await queryClient.fetchQuery({
+      queryFn: () => fetchChatConversationDetail(conversationId),
+      queryKey: detailQueryKey,
+    })
+
+    upsertConversationListCache(queryClient, {
+      created_at: detail.created_at,
+      current_leaf_message_uuid: detail.current_leaf_message_uuid,
+      title: detail.title,
+      updated_at: detail.updated_at,
+      uuid: detail.uuid,
+    })
+  }
+
+  const resolvedData =
+    data ?? queryClient.getQueryData<ChatConversationDetail>(detailQueryKey)
 
   if (isLoading) {
     return (
@@ -38,7 +86,7 @@ function ConversationPage() {
     )
   }
 
-  if (error || !data) {
+  if (error || !resolvedData) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div className="max-w-md space-y-3">
@@ -57,10 +105,11 @@ function ConversationPage() {
     <ConversationView
       key={conversationId}
       conversationId={conversationId}
-      initialCurrentLeafMessageUuid={data.current_leaf_message_uuid}
-      initialMapping={data.mapping}
+      initialCurrentLeafMessageUuid={resolvedData.current_leaf_message_uuid}
+      initialMapping={resolvedData.mapping}
+      onConversationChanged={refreshConversationCaches}
       initialSubmission={initialSubmission}
-      title={data.title}
+      title={resolvedData.title}
     />
   )
 }

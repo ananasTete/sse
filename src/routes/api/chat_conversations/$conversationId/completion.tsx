@@ -1,19 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router'
 import {
-  mutateConversation,
-  updateConversationSummaryFields,
-} from '#/features/chat/conversation-store'
-import { createUserMessage } from '#/features/chat/message-builders'
-import { formatSseEvent } from '#/features/chat/sse'
-import { toChatTimestamp } from '#/features/chat/time'
-import type { ChatConversationDetail } from '#/features/chat/conversation-model'
+  createUserMessage,
+  formatSseEvent,
+  toChatTimestamp,
+} from '#/features/chat/utils'
+import type { ChatConversationDetail } from '#/features/chat/models'
 import type {
   ChatCitation,
   ChatCompletionRequest,
   ChatMessage,
   ChatToolUseContent,
   NewChatMessage,
-} from '#/features/chat/types'
+} from '#/features/chat/models'
+import {
+  mutateConversation,
+  updateConversationSummaryFields,
+} from '#/features/chat/server'
 
 export const Route = createFileRoute(
   '/api/chat_conversations/$conversationId/completion',

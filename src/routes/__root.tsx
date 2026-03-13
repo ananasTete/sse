@@ -4,8 +4,7 @@ import {
   Outlet,
   createRootRouteWithContext,
 } from '@tanstack/react-router'
-import { useState } from 'react'
-import { ConversationSidebar } from '#/features/chat/components/conversation-sidebar'
+import { ConversationSidebar } from '#/features/chat/components'
 import TanStackQueryProvider from '../integrations/tanstack-query/root-provider'
 import appCss from '../styles.css?url'
 import type { QueryClient } from '@tanstack/react-query'
@@ -42,17 +41,10 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 })
 
 function RootLayout() {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-
   return (
     <div className="h-screen overflow-hidden bg-[var(--bg-base)] text-[var(--sea-ink)]">
       <div className="flex h-full">
-        <ConversationSidebar
-          collapsed={isSidebarCollapsed}
-          onToggleCollapsed={() => {
-            setIsSidebarCollapsed((current) => !current)
-          }}
-        />
+        <ConversationSidebar />
 
         <main className="min-w-0 flex-1 overflow-hidden">
           <div className="h-full bg-[var(--surface)]">
