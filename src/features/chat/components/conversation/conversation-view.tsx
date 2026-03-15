@@ -13,7 +13,11 @@ import { DEFAULT_MODEL } from '../../models/constants'
 import type { PendingInitialConversationSubmission } from '../../models/conversation'
 import type { ChatState } from '../../state/chat-state'
 import type { ChatContent } from '../../models/chat'
-import { useChat } from '../../hooks/use-chat'
+import { useChatStore } from '../../store/chat-store'
+import { 
+  useConversationMessages, 
+  useConversationStatus
+} from '../../store/chat-selectors'
 import { cn } from '#/lib/utils'
 import { ConversationComposer } from './conversation-composer'
 
@@ -50,22 +54,26 @@ export function ConversationView({
   onConversationChanged?: () => void | Promise<void>
   title: string
 }) {
-  const {
-    editUserMessage,
-    getBranchState,
-    messages,
-    regenerate,
-    regenerateUserMessage,
-    selectBranch,
-    sendMessage,
-    status,
-    stop,
-  } = useChat({
-    conversationId,
-    initialCurrentLeafMessageUuid,
-    initialMapping,
-    onConversationChanged,
-  })
+  const init = useChatStore((state) => state.initConversation)
+  const sendMessage = useChatStore((state) => state.sendMessage)
+  const editUserMessage = useChatStore((state) => state.editUserMessage)
+  const regenerate = useChatStore((state) => state.regenerate)
+  const regenerateUserMessage = useChatStore((state) => state.regenerateUserMessage)
+  const selectBranch = useChatStore((state) => state.selectBranch)
+  const stop = useChatStore((state) => state.stop)
+
+  useEffect(() => {
+    init(conversationId, initialCurrentLeafMessageUuid, initialMapping)
+  }, [conversationId, initialCurrentLeafMessageUuid, initialMapping, init])
+
+  const messages = useConversationMessages(conversationId)
+  const status = useConversationStatus(conversationId)
+  const mapping = useChatStore((state) => state.conversations[conversationId]?.mapping ?? {})
+
+  // Use a ref to track if we need to call onConversationChanged
+  // We can't easily hook into the end of sendMessage in the component if it's fire-and-forget,
+  // but we can watch for message changes and status turning back to ready.
+  // We can leave onConversationChanged logic mostly intact by just wrapping the store calls.
   const [editingMessageUuid, setEditingMessageUuid] = useState<string | null>(
     null,
   )
@@ -129,11 +137,11 @@ export function ConversationView({
     initialSubmissionRef.current = null
     onInitialSubmissionConsumed?.()
 
-    void sendMessage({
+    void sendMessage(conversationId, {
       model: submission.model,
       prompt: submission.prompt,
-    })
-  }, [messages.length, onInitialSubmissionConsumed, sendMessage, status])
+    }).finally(() => onConversationChanged?.())
+  }, [conversationId, messages.length, onInitialSubmissionConsumed, onConversationChanged, sendMessage, status])
 
   const handleSubmit = async ({
     model,
@@ -142,19 +150,23 @@ export function ConversationView({
     model: string
     prompt: string
   }) => {
-    await sendMessage({ model, prompt })
+    await sendMessage(conversationId, { model, prompt })
+    await onConversationChanged?.()
   }
 
   const handleRegenerate = async (assistantMessageUuid: string) => {
-    await regenerate(assistantMessageUuid)
+    await regenerate(conversationId, assistantMessageUuid)
+    await onConversationChanged?.()
   }
 
   const handleRegenerateUserMessage = async (userMessageUuid: string) => {
-    await regenerateUserMessage(userMessageUuid)
+    await regenerateUserMessage(conversationId, userMessageUuid)
+    await onConversationChanged?.()
   }
 
   const handleBranchSelect = (assistantMessageUuid: string) => {
-    selectBranch(assistantMessageUuid)
+    selectBranch(conversationId, assistantMessageUuid)
+    void onConversationChanged?.()
   }
 
   const handleStartEdit = (messageUuid: string, prompt: string) => {
@@ -168,12 +180,13 @@ export function ConversationView({
   }
 
   const handleConfirmEdit = async (message: (typeof messages)[number]) => {
-    await editUserMessage(message.uuid, {
+    await editUserMessage(conversationId, message.uuid, {
       model: message.model ?? DEFAULT_MODEL,
       prompt: editingPrompt,
     })
     setEditingMessageUuid(null)
     setEditingPrompt('')
+    await onConversationChanged?.()
   }
 
   const handleToggleToolBlock = (toolUseId: string) => {
@@ -212,7 +225,7 @@ export function ConversationView({
                 isUser && editingMessageUuid === message.uuid
               const branchChildUuids =
                 isAssistant || isUser
-                  ? getBranchState(message.parent_message_uuid)
+                  ? mapping[message.parent_message_uuid]?.child_uuids ?? []
                   : []
               const branchIndex = branchChildUuids.indexOf(message.uuid)
               const previousBranchUuid =
@@ -438,7 +451,10 @@ export function ConversationView({
         <div className="border-t border-[var(--line)] bg-[var(--surface-strong)] p-4">
           <ConversationComposer
             isPending={isBusy}
-            onStop={stop}
+            onStop={() => {
+              stop(conversationId)
+              void onConversationChanged?.()
+            }}
             onSubmit={handleSubmit}
           />
         </div>

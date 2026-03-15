@@ -20,21 +20,12 @@ export interface ConversationNode {
 export interface ChatState {
   active_child_uuid_by_parent_uuid: Record<string, string>
   current_leaf_message_uuid: string | null
-  input: string
   mapping: Record<string, ConversationNode>
   next_message_index: number
   status: ChatStatus
 }
 
 export type ChatAction =
-  | {
-      input: string
-      type: 'input-changed'
-    }
-  | {
-      text: string
-      type: 'input-appended'
-    }
   | {
       message: NewChatMessage
       type: 'request-message-added'
@@ -134,7 +125,6 @@ export type ChatAction =
 export const initialChatState: ChatState = {
   active_child_uuid_by_parent_uuid: {}, // 有子分支的父节点和 active 子节点的 map，用来在切换会之前的分之后保持其后续分支选择
   current_leaf_message_uuid: null, // 当前分支下最后一个节点的 id，可以根据这个节点的 parent_id 继续向上找到整条分支节点数组
-  input: '',
   mapping: { // 因为需要支持分支，内部维护一个扁平树结构。不需要分支，直接维护一个 message 数组即可
     [ROOT_PARENT_MESSAGE_UUID]: {
       child_uuids: [],
@@ -188,7 +178,6 @@ export function createHydratedChatState({
   return {
     active_child_uuid_by_parent_uuid: activeChildUuidByParentUuid,
     current_leaf_message_uuid: currentLeafMessageUuid,
-    input: '',
     mapping: hydratedMapping,
     next_message_index: maxMessageIndex + 1,
     status: 'ready',
@@ -287,23 +276,12 @@ function findToolUseBlock(
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   return produce(state, (draft) => {
     switch (action.type) {
-      case 'input-changed':
-        draft.input = action.input
-        return
-
-      case 'input-appended':
-        draft.input = draft.input
-          ? `${draft.input}${draft.input.endsWith('\n') ? '' : '\n'}${action.text}`
-          : action.text
-        return
-
       case 'request-submitted':
         draft.status = 'submitted'
         return
 
       case 'request-message-added':
         if (action.message.role === 'user') {
-          draft.input = ''
           draft.status = 'submitted'
         } else if (action.message.role === 'assistant') {
           draft.status = 'streaming'
