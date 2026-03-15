@@ -10,7 +10,6 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { MessageContent } from '../message/message-content'
 import { DEFAULT_MODEL } from '../../models/constants'
-import type { PendingInitialConversationSubmission } from '../../models/conversation'
 import type { ChatState } from '../../state/chat-state'
 import type { ChatContent } from '../../models/chat'
 import { useChatStore } from '../../store/chat-store'
@@ -41,16 +40,12 @@ export function ConversationView({
   conversationId,
   initialCurrentLeafMessageUuid,
   initialMapping,
-  initialSubmission,
-  onInitialSubmissionConsumed,
   onConversationChanged,
   title,
 }: {
   conversationId: string
   initialCurrentLeafMessageUuid: string | null
   initialMapping: ChatState['mapping']
-  initialSubmission?: PendingInitialConversationSubmission | null
-  onInitialSubmissionConsumed?: () => void
   onConversationChanged?: () => void | Promise<void>
   title: string
 }) {
@@ -81,7 +76,6 @@ export function ConversationView({
   const [expandedToolBlocks, setExpandedToolBlocks] = useState<
     Record<string, boolean>
   >({})
-  const initialSubmissionRef = useRef(initialSubmission ?? null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
   const isBusy = status === 'streaming' || status === 'submitted'
   const lastMessageUpdatedAt =
@@ -126,22 +120,6 @@ export function ConversationView({
       setEditingPrompt('')
     }
   }, [editingMessageUuid, messages])
-
-  useEffect(() => {
-    const submission = initialSubmissionRef.current
-
-    if (!submission || messages.length > 0 || status !== 'ready') {
-      return
-    }
-
-    initialSubmissionRef.current = null
-    onInitialSubmissionConsumed?.()
-
-    void sendMessage(conversationId, {
-      model: submission.model,
-      prompt: submission.prompt,
-    }).finally(() => onConversationChanged?.())
-  }, [conversationId, messages.length, onInitialSubmissionConsumed, onConversationChanged, sendMessage, status])
 
   const handleSubmit = async ({
     model,

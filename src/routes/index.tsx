@@ -10,7 +10,7 @@ import {
   createChatConversation,
   upsertConversationListCache,
 } from '#/features/chat/api'
-import type { PendingInitialConversationSubmission } from '#/features/chat/models'
+import { useChatStore } from '#/features/chat/store/chat-store'
 
 export const Route = createFileRoute('/')({ component: LandingPage })
 
@@ -20,13 +20,13 @@ function LandingPage() {
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const { isPending, mutate } = useMutation({
-    mutationFn: ({ uuid, signal }: { uuid: string; signal: AbortSignal }) =>
+    mutationFn: ({ uuid, signal }: { uuid: string; signal: AbortSignal; model: string; prompt: string }) =>
       createChatConversation({ uuid, signal }),
 
-    onSuccess: (createdConversation, { uuid: conversationId, model, prompt }) => {
+    onSuccess: async (createdConversation, { uuid: conversationId, model, prompt }) => {
       const cachedTitle = buildConversationTitleFromPrompt(prompt)
 
-      // 构建会话详情快照写入缓存
+      // 构建会话详情快照写入缓存，避免跳转后出现 loading
       queryClient.setQueryData(
         conversationKeys.detail(conversationId),
         buildConversationDetailSnapshot({
@@ -34,15 +34,20 @@ function LandingPage() {
           title: cachedTitle,
         }),
       )
-      queryClient.setQueryData<PendingInitialConversationSubmission>(
-        conversationKeys.pendingSubmission(conversationId),
-        { model, prompt },
-      )
+
       // 构建会话记录写入历史记录缓存
       upsertConversationListCache(queryClient, {
         ...createdConversation,
         title: cachedTitle,
       })
+
+      // 1. 在全局 Store 初始化这个新会话
+      useChatStore.getState().initConversation(conversationId)
+
+      // 2. 触发全局后台发送（不等待完成）
+      useChatStore.getState().sendMessage(conversationId, { model, prompt })
+
+      // 3. 立即跳转
       navigate({
         params: { conversationId },
         to: '/chat/$conversationId',

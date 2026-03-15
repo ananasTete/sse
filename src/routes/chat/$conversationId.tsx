@@ -1,17 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect } from 'react'
 import { ConversationView } from '#/features/chat/components'
 import {
   conversationKeys,
   fetchChatConversationDetail,
-  shouldUsePendingConversationSeed,
   upsertConversationListCache,
 } from '#/features/chat/api'
-import type {
-  ChatConversationDetail,
-  PendingInitialConversationSubmission,
-} from '#/features/chat/models'
+import { useChatStore } from '#/features/chat/store/chat-store'
 
 export const Route = createFileRoute('/chat/$conversationId')({
   component: ConversationPage,
@@ -21,37 +16,17 @@ function ConversationPage() {
   const { conversationId } = Route.useParams()
   const queryClient = useQueryClient()
   const detailQueryKey = conversationKeys.detail(conversationId)
-  const clearPendingInitialSubmission = () => {
-    queryClient.removeQueries({
-      exact: true,
-      queryKey: conversationKeys.pendingSubmission(conversationId),
-    })
-  }
-  const cachedDetail =
-    queryClient.getQueryData<ChatConversationDetail>(detailQueryKey) ?? null
-  const pendingInitialSubmission =
-    queryClient.getQueryData<PendingInitialConversationSubmission>(
-      conversationKeys.pendingSubmission(conversationId),
-    ) ?? null
-  const initialSubmission = shouldUsePendingConversationSeed({
-    detail: cachedDetail,
-    initialSubmission: pendingInitialSubmission,
-  })
-    ? pendingInitialSubmission
-    : null
-
-  useEffect(() => {
-    if (!pendingInitialSubmission || initialSubmission) {
-      return
-    }
-
-    clearPendingInitialSubmission()
-  }, [clearPendingInitialSubmission, initialSubmission, pendingInitialSubmission])
+  
+  // 如果会话在 Store 中正处于发送/生成状态，说明是新创建并立刻跳转进来的，
+  // 或者正在生成中，此时不需要向后端拉取详情，避免旧数据覆盖。
+  const chatStatus = useChatStore(state => state.conversations[conversationId]?.status)
+  const isBusy = chatStatus === 'submitted' || chatStatus === 'streaming'
 
   const { data, error, isLoading } = useQuery({
-    enabled: initialSubmission == null,
     queryFn: () => fetchChatConversationDetail(conversationId),
     queryKey: detailQueryKey,
+    enabled: !isBusy,
+    staleTime: 1000 * 10, // 给一点缓存新鲜度，避免跳转时立刻 fallback 请求
   })
 
   const refreshConversationCaches = async () => {
@@ -69,9 +44,7 @@ function ConversationPage() {
     })
   }
 
-  const resolvedData = data ?? cachedDetail
-
-  if (isLoading && !resolvedData) {
+  if (isLoading && !data) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-[var(--sea-ink-soft)]">
         Loading conversation...
@@ -79,7 +52,7 @@ function ConversationPage() {
     )
   }
 
-  if (!resolvedData) {
+  if (!data) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div className="max-w-md space-y-3">
@@ -98,12 +71,10 @@ function ConversationPage() {
     <ConversationView
       key={conversationId}
       conversationId={conversationId}
-      initialCurrentLeafMessageUuid={resolvedData.current_leaf_message_uuid}
-      initialMapping={resolvedData.mapping}
+      initialCurrentLeafMessageUuid={data.current_leaf_message_uuid}
+      initialMapping={data.mapping}
       onConversationChanged={refreshConversationCaches}
-      onInitialSubmissionConsumed={clearPendingInitialSubmission}
-      initialSubmission={initialSubmission}
-      title={resolvedData.title}
+      title={data.title}
     />
   )
 }
