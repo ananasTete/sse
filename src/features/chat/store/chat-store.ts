@@ -43,6 +43,8 @@ interface ChatStore {
   regenerate: (id: string, assistantMessageUuid: string, input?: RegenerateMessageInput) => Promise<void>
   selectBranch: (id: string, messageUuid: string) => void
   stop: (id: string) => void
+  resumeStream: (id: string, messageId: string) => void
+  cancelStream: (id: string, messageId: string) => Promise<void>
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -299,6 +301,73 @@ export const useChatStore = create<ChatStore>()(
         messageUuid,
         type: 'branch-selected',
       })
+    },
+
+    resumeStream: async (id, messageId) => {
+      try {
+        // Set status to streaming
+        get().dispatch(id, { type: 'request-submitted' })
+
+        const response = await fetch(
+          `/api/chat_conversations/${id}/resume?message_id=${messageId}`
+        )
+
+        if (!response.ok) {
+          throw new Error(`Resume stream failed: ${response.status}`)
+        }
+
+        if (!response.body) {
+          throw new Error('Resume stream response did not include a stream body.')
+        }
+
+        // Use the same stream consumption logic as the normal completion
+        await consumeChatCompletionStream({
+          dispatch: (action) => get().dispatch(id, action),
+          onAssistantMessageStarted: (assistantMessageUuid) => {
+            console.log('Resume: Assistant message started:', assistantMessageUuid)
+          },
+          response,
+        })
+
+      } catch (error) {
+        console.error('Resume stream error:', error)
+        get().dispatch(id, { 
+          messageUuid: messageId, 
+          stoppedAt: new Date().toISOString(),
+          type: 'message-stream-stopped' 
+        })
+      }
+    },
+
+    cancelStream: async (id, messageId) => {
+      try {
+        const response = await fetch(`/api/chat_conversations/${id}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message_id: messageId }),
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to cancel stream')
+        }
+
+        // Update local state
+        get().dispatch(id, {
+          messageUuid: messageId,
+          stoppedAt: toChatTimestamp(),
+          type: 'message-stream-stopped',
+        })
+
+        set((draft) => {
+          const conv = draft.conversations[id]
+          if (conv?.activeRequest?.assistantMessageUuid === messageId) {
+            conv.activeRequest = null
+          }
+        })
+      } catch (error) {
+        console.error('Error canceling stream:', error)
+        throw error
+      }
     },
   }))
 )

@@ -14,7 +14,9 @@ import { Route as ChatConversationIdRouteImport } from './routes/chat/$conversat
 import { Route as ApiChat_conversationsIndexRouteImport } from './routes/api/chat_conversations/index'
 import { Route as ApiSttTranscriptionsRouteImport } from './routes/api/stt/transcriptions'
 import { Route as ApiChat_conversationsConversationIdIndexRouteImport } from './routes/api/chat_conversations/$conversationId/index'
+import { Route as ApiChat_conversationsConversationIdResumeRouteImport } from './routes/api/chat_conversations/$conversationId/resume'
 import { Route as ApiChat_conversationsConversationIdCompletionRouteImport } from './routes/api/chat_conversations/$conversationId/completion'
+import { Route as ApiChat_conversationsConversationIdCancelRouteImport } from './routes/api/chat_conversations/$conversationId/cancel'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -43,10 +45,22 @@ const ApiChat_conversationsConversationIdIndexRoute =
     path: '/api/chat_conversations/$conversationId/',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiChat_conversationsConversationIdResumeRoute =
+  ApiChat_conversationsConversationIdResumeRouteImport.update({
+    id: '/api/chat_conversations/$conversationId/resume',
+    path: '/api/chat_conversations/$conversationId/resume',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiChat_conversationsConversationIdCompletionRoute =
   ApiChat_conversationsConversationIdCompletionRouteImport.update({
     id: '/api/chat_conversations/$conversationId/completion',
     path: '/api/chat_conversations/$conversationId/completion',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiChat_conversationsConversationIdCancelRoute =
+  ApiChat_conversationsConversationIdCancelRouteImport.update({
+    id: '/api/chat_conversations/$conversationId/cancel',
+    path: '/api/chat_conversations/$conversationId/cancel',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -55,7 +69,9 @@ export interface FileRoutesByFullPath {
   '/chat/$conversationId': typeof ChatConversationIdRoute
   '/api/stt/transcriptions': typeof ApiSttTranscriptionsRoute
   '/api/chat_conversations/': typeof ApiChat_conversationsIndexRoute
+  '/api/chat_conversations/$conversationId/cancel': typeof ApiChat_conversationsConversationIdCancelRoute
   '/api/chat_conversations/$conversationId/completion': typeof ApiChat_conversationsConversationIdCompletionRoute
+  '/api/chat_conversations/$conversationId/resume': typeof ApiChat_conversationsConversationIdResumeRoute
   '/api/chat_conversations/$conversationId/': typeof ApiChat_conversationsConversationIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -63,7 +79,9 @@ export interface FileRoutesByTo {
   '/chat/$conversationId': typeof ChatConversationIdRoute
   '/api/stt/transcriptions': typeof ApiSttTranscriptionsRoute
   '/api/chat_conversations': typeof ApiChat_conversationsIndexRoute
+  '/api/chat_conversations/$conversationId/cancel': typeof ApiChat_conversationsConversationIdCancelRoute
   '/api/chat_conversations/$conversationId/completion': typeof ApiChat_conversationsConversationIdCompletionRoute
+  '/api/chat_conversations/$conversationId/resume': typeof ApiChat_conversationsConversationIdResumeRoute
   '/api/chat_conversations/$conversationId': typeof ApiChat_conversationsConversationIdIndexRoute
 }
 export interface FileRoutesById {
@@ -72,7 +90,9 @@ export interface FileRoutesById {
   '/chat/$conversationId': typeof ChatConversationIdRoute
   '/api/stt/transcriptions': typeof ApiSttTranscriptionsRoute
   '/api/chat_conversations/': typeof ApiChat_conversationsIndexRoute
+  '/api/chat_conversations/$conversationId/cancel': typeof ApiChat_conversationsConversationIdCancelRoute
   '/api/chat_conversations/$conversationId/completion': typeof ApiChat_conversationsConversationIdCompletionRoute
+  '/api/chat_conversations/$conversationId/resume': typeof ApiChat_conversationsConversationIdResumeRoute
   '/api/chat_conversations/$conversationId/': typeof ApiChat_conversationsConversationIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -82,7 +102,9 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/api/stt/transcriptions'
     | '/api/chat_conversations/'
+    | '/api/chat_conversations/$conversationId/cancel'
     | '/api/chat_conversations/$conversationId/completion'
+    | '/api/chat_conversations/$conversationId/resume'
     | '/api/chat_conversations/$conversationId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -90,7 +112,9 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/api/stt/transcriptions'
     | '/api/chat_conversations'
+    | '/api/chat_conversations/$conversationId/cancel'
     | '/api/chat_conversations/$conversationId/completion'
+    | '/api/chat_conversations/$conversationId/resume'
     | '/api/chat_conversations/$conversationId'
   id:
     | '__root__'
@@ -98,7 +122,9 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/api/stt/transcriptions'
     | '/api/chat_conversations/'
+    | '/api/chat_conversations/$conversationId/cancel'
     | '/api/chat_conversations/$conversationId/completion'
+    | '/api/chat_conversations/$conversationId/resume'
     | '/api/chat_conversations/$conversationId/'
   fileRoutesById: FileRoutesById
 }
@@ -107,7 +133,9 @@ export interface RootRouteChildren {
   ChatConversationIdRoute: typeof ChatConversationIdRoute
   ApiSttTranscriptionsRoute: typeof ApiSttTranscriptionsRoute
   ApiChat_conversationsIndexRoute: typeof ApiChat_conversationsIndexRoute
+  ApiChat_conversationsConversationIdCancelRoute: typeof ApiChat_conversationsConversationIdCancelRoute
   ApiChat_conversationsConversationIdCompletionRoute: typeof ApiChat_conversationsConversationIdCompletionRoute
+  ApiChat_conversationsConversationIdResumeRoute: typeof ApiChat_conversationsConversationIdResumeRoute
   ApiChat_conversationsConversationIdIndexRoute: typeof ApiChat_conversationsConversationIdIndexRoute
 }
 
@@ -148,11 +176,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChat_conversationsConversationIdIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/chat_conversations/$conversationId/resume': {
+      id: '/api/chat_conversations/$conversationId/resume'
+      path: '/api/chat_conversations/$conversationId/resume'
+      fullPath: '/api/chat_conversations/$conversationId/resume'
+      preLoaderRoute: typeof ApiChat_conversationsConversationIdResumeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/chat_conversations/$conversationId/completion': {
       id: '/api/chat_conversations/$conversationId/completion'
       path: '/api/chat_conversations/$conversationId/completion'
       fullPath: '/api/chat_conversations/$conversationId/completion'
       preLoaderRoute: typeof ApiChat_conversationsConversationIdCompletionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chat_conversations/$conversationId/cancel': {
+      id: '/api/chat_conversations/$conversationId/cancel'
+      path: '/api/chat_conversations/$conversationId/cancel'
+      fullPath: '/api/chat_conversations/$conversationId/cancel'
+      preLoaderRoute: typeof ApiChat_conversationsConversationIdCancelRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -163,8 +205,12 @@ const rootRouteChildren: RootRouteChildren = {
   ChatConversationIdRoute: ChatConversationIdRoute,
   ApiSttTranscriptionsRoute: ApiSttTranscriptionsRoute,
   ApiChat_conversationsIndexRoute: ApiChat_conversationsIndexRoute,
+  ApiChat_conversationsConversationIdCancelRoute:
+    ApiChat_conversationsConversationIdCancelRoute,
   ApiChat_conversationsConversationIdCompletionRoute:
     ApiChat_conversationsConversationIdCompletionRoute,
+  ApiChat_conversationsConversationIdResumeRoute:
+    ApiChat_conversationsConversationIdResumeRoute,
   ApiChat_conversationsConversationIdIndexRoute:
     ApiChat_conversationsConversationIdIndexRoute,
 }

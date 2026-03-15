@@ -12,6 +12,7 @@ import type {
   ChatCompletionContentBlockStopEvent,
   ChatCompletionMessageDeltaEvent,
   ChatCompletionMessageLimitEvent,
+  ChatCompletionMessageSnapshotEvent,
   ChatCompletionMessageStartEvent,
 } from '../models/chat'
 import type { ChatAction } from '../state/chat-state'
@@ -99,6 +100,38 @@ export async function consumeChatCompletionStream({
         dispatch({
           message: createAssistantMessage(payload),
           type: 'request-message-added',
+        })
+        break
+      }
+      case 'message_snapshot': {
+        const payload = JSON.parse(data) as ChatCompletionMessageSnapshotEvent
+
+        assistantMessageUuid = payload.message.uuid
+        onAssistantMessageStarted?.(assistantMessageUuid)
+
+        dispatch({
+          message: payload.message,
+          type: 'message-snapshot-received',
+        })
+
+        // Reconstruct active content blocks from snapshot to support subsequent deltas
+        activeContentBlocks.clear()
+        payload.message.content.forEach((block, index) => {
+          if (!block) return // Handle null blocks (array holes from tool_result)
+          
+          if (block.type === 'text') {
+            activeContentBlocks.set(index, {
+              openCitations: new Map(),
+              textLength: block.text.length,
+              type: 'text',
+            })
+          } else if (block.type === 'tool_use') {
+            activeContentBlocks.set(index, {
+              inputJsonBuffer: block.input ? JSON.stringify(block.input) : '',
+              toolUseId: block.id,
+              type: 'tool_use',
+            })
+          }
         })
         break
       }

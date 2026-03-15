@@ -15,13 +15,13 @@ export function MessageContent({
 	isStreamingMessage,
 	onToggleToolBlock,
 }: MessageContentProps) {
-		const safeBlocks = blocks.filter(
-			(block): block is ChatContent => block != null,
-		);
+	const safeBlocks = blocks.filter(
+		(block): block is ChatContent => block != null,
+	);
 
 	return (
 		<div className="space-y-3">
-			{safeBlocks.map((block) => {
+			{safeBlocks.map((block, index) => {
 				if (block.type === "text") {
 					const showCursor =
 						isStreamingMessage && block.stop_timestamp === null;
@@ -30,7 +30,7 @@ export function MessageContent({
 						<MarkdownText
 							citations={block.citations}
 							isStreaming={showCursor}
-							key={`${block.type}-${block.start_timestamp}-${block.stop_timestamp ?? "streaming"}`}
+							key={`${block.type}-${block.start_timestamp}-${index}`}
 							text={block.text}
 						/>
 					);

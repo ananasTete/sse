@@ -31,6 +31,10 @@ export type ChatAction =
       type: 'request-message-added'
     }
   | {
+      message: NewChatMessage
+      type: 'message-snapshot-received'
+    }
+  | {
       type: 'request-submitted'
     }
   | {
@@ -289,6 +293,30 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
         appendMessageNode(draft, action.message)
         return
+
+      case 'message-snapshot-received': {
+        const existingNode = findNodeByUuid(draft.mapping, action.message.uuid)
+        const timestamp = new Date().toISOString()
+
+        if (existingNode) {
+          // Merge snapshot into existing message, preserving index and hierarchy
+          const currentMessage = existingNode.message
+          if (currentMessage) {
+            currentMessage.content = action.message.content
+            currentMessage.metadata = action.message.metadata
+            currentMessage.model = action.message.model
+            currentMessage.stop_reason = action.message.stop_reason
+            currentMessage.updated_at = timestamp
+          }
+        } else {
+          // If message doesn't exist (rare), append it
+          appendMessageNode(draft, action.message)
+        }
+        
+        // Ensure we are in streaming state to show UI indicators
+        draft.status = 'streaming'
+        return
+      }
 
       case 'content-block-started': {
         const message = findNodeByUuid(draft.mapping, action.messageUuid)?.message

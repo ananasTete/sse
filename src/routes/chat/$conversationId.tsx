@@ -7,6 +7,7 @@ import {
   upsertConversationListCache,
 } from '#/features/chat/api'
 import { useChatStore } from '#/features/chat/store/chat-store'
+import { useEffect } from 'react'
 
 export const Route = createFileRoute('/chat/$conversationId')({
   component: ConversationPage,
@@ -28,6 +29,25 @@ function ConversationPage() {
     enabled: !isBusy,
     staleTime: 1000 * 10, // 给一点缓存新鲜度，避免跳转时立刻 fallback 请求
   })
+
+  const resumeStream = useChatStore(state => state.resumeStream)
+
+  // Check if there's an incomplete stream and resume it
+  useEffect(() => {
+    if (data && data.current_leaf_message_uuid) {
+      // Find the last assistant message
+      const lastMessage = Object.values(data.mapping)
+        .map(node => node.message)
+        .filter((msg): msg is NonNullable<typeof msg> => msg !== null)
+        .reverse()
+        .find(msg => msg.role === 'assistant' && msg.stop_reason === null)
+
+      if (lastMessage) {
+        console.log('Found incomplete stream, resuming:', lastMessage.uuid)
+        resumeStream(conversationId, lastMessage.uuid)
+      }
+    }
+  }, [data, conversationId, resumeStream])
 
   const refreshConversationCaches = async () => {
     const detail = await queryClient.fetchQuery({

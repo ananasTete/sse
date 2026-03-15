@@ -262,11 +262,17 @@ export interface ChatCompletionMessageLimitEvent {
   type: 'message_limit'
 }
 
+export interface ChatCompletionMessageSnapshotEvent {
+  message: NewChatMessage
+  type: 'message_snapshot'
+}
+
 export type ChatCompletionSseEvent =
   | ChatCompletionContentBlockDeltaEvent
   | ChatCompletionContentBlockStartEvent
   | ChatCompletionContentBlockStopEvent
   | ChatCompletionMessageLimitEvent
+  | ChatCompletionMessageSnapshotEvent
   | ChatCompletionMessageDeltaEvent
   | ChatCompletionMessageStartEvent
   | ChatCompletionMessageStopEvent
