@@ -23,8 +23,16 @@ export const conversationKeys = {
 // URL helpers
 // ---------------------------------------------------------------------------
 
+export function getChatConversationPath(conversationId: string) {
+  return `/api/chat_conversations/${conversationId}`
+}
+
 export function getChatCompletionPath(conversationId: string) {
-  return `/api/chat_conversations/${conversationId}/completion`
+  return `${getChatConversationPath(conversationId)}/completion`
+}
+
+export function getChatConversationCancelPath(conversationId: string) {
+  return `${getChatConversationPath(conversationId)}/cancel`
 }
 
 // ---------------------------------------------------------------------------
@@ -66,9 +74,26 @@ export async function createChatConversation(
 }
 
 export async function fetchChatConversationDetail(conversationId: string) {
-  const response = await fetch(`/api/chat_conversations/${conversationId}`)
+  const response = await fetch(getChatConversationPath(conversationId))
 
   return readJson<ChatConversationDetail>(response)
+}
+
+export async function updateChatConversationCurrentLeaf(
+  conversationId: string,
+  currentLeafMessageUuid: string | null,
+) {
+  const response = await fetch(getChatConversationPath(conversationId), {
+    body: JSON.stringify({
+      current_leaf_message_uuid: currentLeafMessageUuid,
+    }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'PATCH',
+  })
+
+  return readJson<ChatConversationSummary>(response)
 }
 
 export async function fetchChatConversationList({

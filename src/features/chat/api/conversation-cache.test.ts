@@ -1,103 +1,103 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from "vitest";
 
-import { ROOT_PARENT_MESSAGE_UUID } from '../models/constants'
+import { ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
+import { buildConversationDetailSnapshot } from "../streaming/conversation";
 import {
-  buildConversationDetailSnapshot,
   isConversationDetailEmpty,
   shouldUsePendingConversationSeed,
-} from './conversation-cache'
+} from "./conversation-cache";
 
-describe('conversation detail helpers', () => {
-  it('treats a seeded snapshot for a new conversation as empty', () => {
+describe("conversation detail helpers", () => {
+  it("treats a seeded snapshot for a new conversation as empty", () => {
     const detail = buildConversationDetailSnapshot({
       summary: {
-        created_at: '2026-03-12T00:00:00.000Z',
+        created_at: "2026-03-12T00:00:00.000Z",
         current_leaf_message_uuid: null,
-        title: 'New conversation',
-        updated_at: '2026-03-12T00:00:00.000Z',
-        uuid: 'conversation-1',
+        title: "",
+        updated_at: "2026-03-12T00:00:00.000Z",
+        uuid: "conversation-1",
       },
-    })
+    });
 
-    expect(isConversationDetailEmpty(detail)).toBe(true)
-  })
+    expect(isConversationDetailEmpty(detail)).toBe(true);
+  });
 
-  it('treats a conversation with persisted messages as non-empty', () => {
+  it("treats a conversation with persisted messages as non-empty", () => {
     expect(
       isConversationDetailEmpty({
-        current_leaf_message_uuid: 'assistant-1',
+        current_leaf_message_uuid: "assistant-1",
         mapping: {
           [ROOT_PARENT_MESSAGE_UUID]: {
-            child_uuids: ['user-1'],
+            child_uuids: ["user-1"],
             message: null,
             parent_uuid: null,
             uuid: ROOT_PARENT_MESSAGE_UUID,
           },
-          'assistant-1': {
+          "assistant-1": {
             child_uuids: [],
             message: null,
-            parent_uuid: 'user-1',
-            uuid: 'assistant-1',
+            parent_uuid: "user-1",
+            uuid: "assistant-1",
           },
-          'user-1': {
-            child_uuids: ['assistant-1'],
+          "user-1": {
+            child_uuids: ["assistant-1"],
             message: null,
             parent_uuid: ROOT_PARENT_MESSAGE_UUID,
-            uuid: 'user-1',
+            uuid: "user-1",
           },
         },
       }),
-    ).toBe(false)
-  })
+    ).toBe(false);
+  });
 
-  it('uses the pending seed only for an empty cached detail snapshot', () => {
+  it("uses the pending seed only for an empty cached detail snapshot", () => {
     const initialSubmission = {
-      model: 'gpt-5.4',
-      prompt: 'Explain the codebase',
-    }
+      model: "gpt-5.4",
+      prompt: "Explain the codebase",
+    };
 
     expect(
       shouldUsePendingConversationSeed({
         detail: buildConversationDetailSnapshot({
           summary: {
-            created_at: '2026-03-12T00:00:00.000Z',
+            created_at: "2026-03-12T00:00:00.000Z",
             current_leaf_message_uuid: null,
-            title: 'New conversation',
-            updated_at: '2026-03-12T00:00:00.000Z',
-            uuid: 'conversation-1',
+            title: "",
+            updated_at: "2026-03-12T00:00:00.000Z",
+            uuid: "conversation-1",
           },
         }),
         initialSubmission,
       }),
-    ).toBe(true)
+    ).toBe(true);
 
     expect(
       shouldUsePendingConversationSeed({
         detail: {
-          current_leaf_message_uuid: 'assistant-1',
+          current_leaf_message_uuid: "assistant-1",
           mapping: {
             [ROOT_PARENT_MESSAGE_UUID]: {
-              child_uuids: ['user-1'],
+              child_uuids: ["user-1"],
               message: null,
               parent_uuid: null,
               uuid: ROOT_PARENT_MESSAGE_UUID,
             },
-            'assistant-1': {
+            "assistant-1": {
               child_uuids: [],
               message: null,
-              parent_uuid: 'user-1',
-              uuid: 'assistant-1',
+              parent_uuid: "user-1",
+              uuid: "assistant-1",
             },
-            'user-1': {
-              child_uuids: ['assistant-1'],
+            "user-1": {
+              child_uuids: ["assistant-1"],
               message: null,
               parent_uuid: ROOT_PARENT_MESSAGE_UUID,
-              uuid: 'user-1',
+              uuid: "user-1",
             },
           },
         },
         initialSubmission,
       }),
-    ).toBe(false)
-  })
-})
+    ).toBe(false);
+  });
+});

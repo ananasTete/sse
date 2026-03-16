@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -10,65 +11,31 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { MessageContent } from '../message/message-content'
 import { DEFAULT_MODEL } from '../../models/constants'
-import type { ChatState } from '../../state/chat-state'
-import type { ChatContent } from '../../models/chat'
-import { useChatStore } from '../../store/chat-store'
-import { 
-  useConversationMessages, 
-  useConversationStatus
-} from '../../store/chat-selectors'
+import { useConversationStore } from '../../store/conversation-store'
+import {
+  useConversationErrorMessage,
+  useConversationMessages,
+  useConversationStatus,
+} from '../../store/conversation-selectors'
 import { cn } from '#/lib/utils'
 import { ConversationComposer } from './conversation-composer'
 
-function getMessageText(text: string) {
-  return text.trim() || ' '
-}
-
-function getTextContent(blocks: ChatContent[]) {
-  return blocks
-    .filter(
-      (
-        block,
-      ): block is Extract<ChatContent, { type: 'text' }> =>
-        block != null && block.type === 'text',
-    )
-    .map((block) => block.text)
-    .join('')
-}
-
 export function ConversationView({
   conversationId,
-  initialCurrentLeafMessageUuid,
-  initialMapping,
-  onConversationChanged,
-  title,
 }: {
   conversationId: string
-  initialCurrentLeafMessageUuid: string | null
-  initialMapping: ChatState['mapping']
-  onConversationChanged?: () => void | Promise<void>
-  title: string
 }) {
-  const init = useChatStore((state) => state.initConversation)
-  const sendMessage = useChatStore((state) => state.sendMessage)
-  const editUserMessage = useChatStore((state) => state.editUserMessage)
-  const regenerate = useChatStore((state) => state.regenerate)
-  const regenerateUserMessage = useChatStore((state) => state.regenerateUserMessage)
-  const selectBranch = useChatStore((state) => state.selectBranch)
-  const stop = useChatStore((state) => state.stop)
-
-  useEffect(() => {
-    init(conversationId, initialCurrentLeafMessageUuid, initialMapping)
-  }, [conversationId, initialCurrentLeafMessageUuid, initialMapping, init])
+  const sendMessage = useConversationStore((state) => state.sendMessage)
+  const editUserMessage = useConversationStore((state) => state.editUserMessage)
+  const regenerate = useConversationStore((state) => state.regenerate)
+  const regenerateUserMessage = useConversationStore((state) => state.regenerateUserMessage)
+  const selectBranch = useConversationStore((state) => state.selectBranch)
+  const stop = useConversationStore((state) => state.stop)
 
   const messages = useConversationMessages(conversationId)
+  const errorMessage = useConversationErrorMessage(conversationId)
   const status = useConversationStatus(conversationId)
-  const mapping = useChatStore((state) => state.conversations[conversationId]?.mapping ?? {})
 
-  // Use a ref to track if we need to call onConversationChanged
-  // We can't easily hook into the end of sendMessage in the component if it's fire-and-forget,
-  // but we can watch for message changes and status turning back to ready.
-  // We can leave onConversationChanged logic mostly intact by just wrapping the store calls.
   const [editingMessageUuid, setEditingMessageUuid] = useState<string | null>(
     null,
   )
@@ -80,14 +47,6 @@ export function ConversationView({
   const isBusy = status === 'streaming' || status === 'submitted'
   const lastMessageUpdatedAt =
     messages[messages.length - 1]?.updated_at ?? null
-  const statusLabel =
-    status === 'submitted'
-      ? 'waiting'
-      : status === 'streaming'
-        ? 'streaming'
-        : status === 'error'
-          ? 'error'
-          : 'ready'
 
   useEffect(() => {
     if (!lastMessageUpdatedAt && status === 'ready') {
@@ -129,22 +88,18 @@ export function ConversationView({
     prompt: string
   }) => {
     await sendMessage(conversationId, { model, prompt })
-    await onConversationChanged?.()
   }
 
   const handleRegenerate = async (assistantMessageUuid: string) => {
     await regenerate(conversationId, assistantMessageUuid)
-    await onConversationChanged?.()
   }
 
   const handleRegenerateUserMessage = async (userMessageUuid: string) => {
     await regenerateUserMessage(conversationId, userMessageUuid)
-    await onConversationChanged?.()
   }
 
   const handleBranchSelect = (assistantMessageUuid: string) => {
-    selectBranch(conversationId, assistantMessageUuid)
-    void onConversationChanged?.()
+    void selectBranch(conversationId, assistantMessageUuid)
   }
 
   const handleStartEdit = (messageUuid: string, prompt: string) => {
@@ -164,7 +119,6 @@ export function ConversationView({
     })
     setEditingMessageUuid(null)
     setEditingPrompt('')
-    await onConversationChanged?.()
   }
 
   const handleToggleToolBlock = (toolUseId: string) => {
@@ -176,47 +130,39 @@ export function ConversationView({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
-      <header className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--header-bg)] px-5 py-4 text-sm">
-        <div className="min-w-0">
-          <div className="truncate text-base font-semibold text-[var(--sea-ink)]">
-            {title}
-          </div>
-          <div className="text-[var(--sea-ink-soft)]">
-            {messages.length} messages
-          </div>
-        </div>
-        <span className="font-medium text-[var(--sea-ink-soft)]">{statusLabel}</span>
-      </header>
-
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {errorMessage ? (
+          <div className="border-b border-[rgba(160,74,53,0.18)] bg-[rgba(160,74,53,0.08)] px-5 py-3 text-sm text-[var(--sea-ink)]">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 size-4 shrink-0 text-[rgb(160,74,53)]" />
+              <p className="leading-6">{errorMessage}</p>
+            </div>
+          </div>
+        ) : null}
+
         <div
           className="flex-1 space-y-4 overflow-y-auto px-5 py-5"
           ref={transcriptRef}
         >
           {messages.length ? (
-            messages.map((message, index) => {
-              const rawText = getTextContent(message.content)
-              const text = getMessageText(rawText)
+            messages.map((message) => {
               const isUser = message.role === 'user'
               const isAssistant = message.role === 'assistant'
               const isEditingUserMessage =
                 isUser && editingMessageUuid === message.uuid
-              const branchChildUuids =
-                isAssistant || isUser
-                  ? mapping[message.parent_message_uuid]?.child_uuids ?? []
-                  : []
-              const branchIndex = branchChildUuids.indexOf(message.uuid)
-              const previousBranchUuid =
-                branchIndex > 0 ? branchChildUuids[branchIndex - 1] : null
-              const nextBranchUuid =
-                branchIndex >= 0 && branchIndex < branchChildUuids.length - 1
-                  ? branchChildUuids[branchIndex + 1]
-                  : null
-              const isStreamingMessage =
-                isAssistant &&
-                isBusy &&
-                index === messages.length - 1 &&
-                message.stop_reason === null
+
+              const {
+                branchIndex,
+                branchCount,
+                previousBranchUuid,
+                nextBranchUuid,
+              } =
+                message.branchInfo ?? {
+                  branchCount: 0,
+                  branchIndex: -1,
+                  nextBranchUuid: null,
+                  previousBranchUuid: null,
+                }
 
               return (
                 <article
@@ -251,12 +197,12 @@ export function ConversationView({
                       <MessageContent
                         blocks={message.content}
                         expandedToolBlocks={expandedToolBlocks}
-                        isStreamingMessage={isStreamingMessage}
+                        isStreamingMessage={message.isStreaming}
                         onToggleToolBlock={handleToggleToolBlock}
                       />
                     ) : (
                       <p className="whitespace-pre-wrap text-[0.95rem] leading-7 text-[var(--sea-ink)]">
-                        {text}
+                        {message.plainText}
                       </p>
                     )}
 
@@ -292,7 +238,7 @@ export function ConversationView({
                               className="inline-flex items-center gap-1 transition hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-40"
                               disabled={isBusy}
                               onClick={() => {
-                                handleStartEdit(message.uuid, rawText)
+                                handleStartEdit(message.uuid, message.plainText)
                               }}
                               type="button"
                             >
@@ -314,7 +260,7 @@ export function ConversationView({
                           </>
                         )}
 
-                        {branchChildUuids.length > 1 ? (
+                        {branchCount > 1 ? (
                           <div className="inline-flex items-center gap-1">
                             <button
                               className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-[var(--line)] hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-35"
@@ -336,7 +282,7 @@ export function ConversationView({
                             </button>
 
                             <span>
-                              {branchIndex + 1}/{branchChildUuids.length}
+                              {branchIndex + 1}/{branchCount}
                             </span>
 
                             <button
@@ -376,7 +322,7 @@ export function ConversationView({
                           Regenerate
                         </button>
 
-                        {branchChildUuids.length > 1 ? (
+                        {branchCount > 1 ? (
                           <div className="inline-flex items-center gap-1">
                             <button
                               className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-[var(--line)] hover:text-[var(--sea-ink)] disabled:cursor-not-allowed disabled:opacity-35"
@@ -394,7 +340,7 @@ export function ConversationView({
                             </button>
 
                             <span>
-                              {branchIndex + 1}/{branchChildUuids.length}
+                              {branchIndex + 1}/{branchCount}
                             </span>
 
                             <button
@@ -430,8 +376,7 @@ export function ConversationView({
           <ConversationComposer
             isPending={isBusy}
             onStop={() => {
-              stop(conversationId)
-              void onConversationChanged?.()
+              void stop(conversationId)
             }}
             onSubmit={handleSubmit}
           />

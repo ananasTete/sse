@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import {
-  toChatTimestamp,
-} from '#/features/chat/utils'
+  getISOTimestamp,
+} from '#/features/chat/streaming'
 import { runBackgroundGeneration } from '#/features/chat/server/events/generator'
 import {
   mutateConversation,
@@ -43,19 +43,19 @@ export const Route = createFileRoute(
             userMessage = {
               content: [{
                 citations: [],
-                start_timestamp: toChatTimestamp(),
-                stop_timestamp: toChatTimestamp(),
+                start_timestamp: getISOTimestamp(),
+                stop_timestamp: getISOTimestamp(),
                 text: body.prompt,
                 type: 'text'
               }],
-              created_at: toChatTimestamp(),
+              created_at: getISOTimestamp(),
               files: body.files,
               metadata: {},
               model: body.model,
               parent_message_uuid: parentUuid,
               role: 'user',
               stop_reason: null,
-              updated_at: toChatTimestamp(),
+              updated_at: getISOTimestamp(),
               uuid: userMessageUuid,
               index: 0,
             }
@@ -91,14 +91,14 @@ export const Route = createFileRoute(
           // Create assistant message
           const assistantMessage: ChatMessage = {
             content: [],
-            created_at: toChatTimestamp(),
+            created_at: getISOTimestamp(),
             files: [],
             metadata: {},
             model: body.model,
             parent_message_uuid: assistantParentUuid,
             role: 'assistant',
             stop_reason: null,
-            updated_at: toChatTimestamp(),
+            updated_at: getISOTimestamp(),
             uuid: assistantMessageUuid,
             index: 0, // Will be updated below
           }
@@ -126,8 +126,7 @@ export const Route = createFileRoute(
           // Update conversation summary
           updateConversationSummaryFields(conversation, {
             currentLeafMessageUuid: assistantMessageUuid,
-            prompt: body.prompt,
-            updatedAt: toChatTimestamp()
+            updatedAt: getISOTimestamp()
           })
         })
 

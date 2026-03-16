@@ -3,15 +3,19 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { consumeChatCompletionStream } from '../utils/chat-stream';
+import { processChatCompletionStream } from '../streaming/completion-stream';
 import { MarkdownText } from '../components/message/markdown-text';
-import { formatSseEvent } from '../utils/sse';
-import type { ChatAction, ChatState } from '../state/chat-state';
+import { formatSseEvent } from '../streaming/sse';
 import {
-	chatReducer,
-	initialChatState,
-} from '../state/chat-state';
-import { selectCurrentBranchMessages } from '../state/chat-selectors';
+	createEmptyConversationDomain,
+	reduceConversationDomain,
+	type ConversationAction,
+} from '../state/conversation-domain-reducer';
+import {
+	createInitialConversationRuntimeState,
+	type ConversationRuntimeState,
+} from '../state/conversation-runtime';
+import { selectCurrentBranchMessages } from '../state/conversation-selectors';
 import type { ChatCitation, ChatCompletionSseEvent } from '../models/chat';
 
 function createStreamingResponse(events: ChatCompletionSseEvent[]) {
@@ -32,7 +36,7 @@ function createStreamingResponse(events: ChatCompletionSseEvent[]) {
 
 describe("citation streaming", () => {
 	it("tracks citation offsets for a text block", async () => {
-		const actions: ChatAction[] = [];
+		const actions: ConversationAction[] = [];
 
 		const citation: Omit<ChatCitation, "end_index" | "start_index"> = {
 			metadata: {
@@ -58,7 +62,7 @@ describe("citation streaming", () => {
 			uuid: "citation-1",
 		};
 
-		await consumeChatCompletionStream({
+		await processChatCompletionStream({
 			dispatch(action) {
 				actions.push(action);
 			},
@@ -147,7 +151,29 @@ describe("citation streaming", () => {
 			]),
 		});
 
-		const finalState = actions.reduce<ChatState>(chatReducer, initialChatState);
+		const initialRuntime = createInitialConversationRuntimeState();
+		const reducedState = actions.reduce(
+			{
+				domain: createEmptyConversationDomain(
+					'conversation-1',
+					'2026-03-11T12:00:00.000Z',
+				),
+				runtime: {
+					active_child_uuid_by_parent_uuid:
+						initialRuntime.active_child_uuid_by_parent_uuid,
+					next_message_index: initialRuntime.next_message_index,
+				},
+			},
+			(state, action) =>
+				reduceConversationDomain(state.domain, state.runtime, action),
+		);
+		const finalState = {
+			domain: reducedState.domain,
+			runtime: {
+				...initialRuntime,
+				...reducedState.runtime,
+			} satisfies ConversationRuntimeState,
+		};
 		const [message] = selectCurrentBranchMessages(finalState);
 		const textBlock = message?.content[0];
 

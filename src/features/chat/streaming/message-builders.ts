@@ -1,11 +1,11 @@
-import { toChatTimestamp } from './time'
+import { getISOTimestamp } from "./time";
 import type {
   ChatCompletionContentBlockStartEvent,
   ChatCompletionMessageStartEvent,
   ChatToolResultContent,
   ChatToolUseContent,
   NewChatMessage,
-} from '../models/chat'
+} from "../models/chat";
 
 export function createUserMessage({
   files,
@@ -14,13 +14,13 @@ export function createUserMessage({
   prompt,
   uuid,
 }: {
-  files: string[]
-  model: string
-  parentMessageUuid: string
-  prompt: string
-  uuid: string
+  files: string[];
+  model: string;
+  parentMessageUuid: string;
+  prompt: string;
+  uuid: string;
 }) {
-  const timestamp = toChatTimestamp()
+  const timestamp = getISOTimestamp();
 
   return {
     content: [
@@ -29,7 +29,7 @@ export function createUserMessage({
         start_timestamp: timestamp,
         stop_timestamp: timestamp,
         text: prompt,
-        type: 'text',
+        type: "text",
       },
     ],
     created_at: timestamp,
@@ -37,17 +37,15 @@ export function createUserMessage({
     metadata: {},
     model,
     parent_message_uuid: parentMessageUuid,
-    role: 'user',
+    role: "user",
     stop_reason: null,
     updated_at: timestamp,
     uuid,
-  } satisfies NewChatMessage
+  } satisfies NewChatMessage;
 }
 
-export function createAssistantMessage(
-  event: ChatCompletionMessageStartEvent,
-) {
-  const timestamp = toChatTimestamp()
+export function createAssistantMessage(event: ChatCompletionMessageStartEvent) {
+  const timestamp = getISOTimestamp();
 
   return {
     content: [],
@@ -56,25 +54,27 @@ export function createAssistantMessage(
     metadata: {},
     model: event.message.model,
     parent_message_uuid: event.message.parent_uuid,
-    role: 'assistant',
+    role: "assistant",
     stop_reason: event.message.stop_reason,
     updated_at: timestamp,
     uuid: event.message.uuid,
-  } satisfies NewChatMessage
+  } satisfies NewChatMessage;
 }
 
-export function createContentBlock(event: ChatCompletionContentBlockStartEvent) {
+export function createContentBlock(
+  event: ChatCompletionContentBlockStartEvent,
+) {
   switch (event.content_block.type) {
-    case 'text':
+    case "text":
       return {
         citations: event.content_block.citations,
         start_timestamp: event.content_block.start_timestamp,
         stop_timestamp: event.content_block.stop_timestamp,
         text: event.content_block.text,
         type: event.content_block.type,
-      } satisfies NewChatMessage['content'][number]
+      } satisfies NewChatMessage["content"][number];
 
-    case 'tool_use':
+    case "tool_use":
       return {
         display_content: event.content_block.display_content,
         icon_name: event.content_block.icon_name,
@@ -86,18 +86,20 @@ export function createContentBlock(event: ChatCompletionContentBlockStartEvent) 
         stop_timestamp: event.content_block.stop_timestamp,
         tool_result: null,
         type: event.content_block.type,
-      } satisfies ChatToolUseContent
+      } satisfies ChatToolUseContent;
 
-    case 'tool_result':
-      throw new Error('Tool result blocks must be attached to a tool_use block.')
+    case "tool_result":
+      throw new Error(
+        "Tool result blocks must be attached to a tool_use block.",
+      );
   }
 }
 
 export function createToolResultBlock(
   event: ChatCompletionContentBlockStartEvent,
 ) {
-  if (event.content_block.type !== 'tool_result') {
-    throw new Error('Expected a tool_result block.')
+  if (event.content_block.type !== "tool_result") {
+    throw new Error("Expected a tool_result block.");
   }
 
   return {
@@ -110,5 +112,5 @@ export function createToolResultBlock(
     stop_timestamp: event.content_block.stop_timestamp,
     tool_use_id: event.content_block.tool_use_id,
     type: event.content_block.type,
-  } satisfies ChatToolResultContent
+  } satisfies ChatToolResultContent;
 }

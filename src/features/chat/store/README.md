@@ -1,187 +1,333 @@
-# 全局聊天状态管理架构设计
+# Conversation Store Architecture
 
-## 概述
+## Overview
 
-本目录实现了基于 Zustand 的全局聊天状态管理架构，彻底废弃了原有的 `useChat` Hook，实现了以下核心目标：
+本目录承载聊天会话的全局状态管理实现。当前设计目标只有三个：
 
-1. **状态与 UI 解耦**：所有状态管理和 SSE 异步请求都在 React 生命周期之外运行
-2. **多会话并发**：支持同时进行多个对话的流式生成，互不干扰
-3. **页面切换不中断**：即使组件卸载，后台流式生成继续，回来时无缝接管显示
-4. **原子化订阅**：组件按需订阅，避免不必要的重渲染
+1. 把副作用和领域状态更新分开
+2. 支持多会话并发与页面切换后的流式续传
+3. 保持状态边界清晰，但不过度设计
 
-## 架构设计
+当前实现采用：
 
-### 状态层 (state/chat-state.ts)
+- Zustand 负责全局 store
+- `conversation-store.ts` 负责副作用编排与运行态更新
+- `conversation-state.ts` 负责 domain reducer
+- `conversation-selectors.ts` 负责派生读取
 
-```typescript
-// 精简后的 ChatState，只包含核心对话数据
-export interface ChatState {
-  active_child_uuid_by_parent_uuid: Record<string, string>
+## Core Model
+
+每个会话在 store 中的结构是：
+
+```ts
+interface ConversationState {
+  domain: ChatConversationDetail
+  runtime: ConversationRuntimeState
+}
+```
+
+顶层 store 为：
+
+```ts
+interface ConversationStore {
+  conversations: Record<string, ConversationState>
+}
+```
+
+也就是每个 `conversationId` 对应一份独立会话状态，彼此隔离。
+
+## State Layers
+
+### Domain
+
+`domain` 只保存会话详情对象模型，也就是服务端语义上的会话内容：
+
+```ts
+interface ChatConversationDetail {
+  uuid: string
+  title: string
+  created_at: string
+  updated_at: string
   current_leaf_message_uuid: string | null
-  mapping: Record<string, ConversationNode>
+  mapping: ConversationMapping
+}
+```
+
+这里回答的问题是：
+
+- 这段会话是什么
+- 当前持久化的消息树是什么
+- 当前服务端视角的主分支叶子是谁
+
+`mapping` 是一棵扁平树：
+
+```ts
+interface ConversationNode {
+  uuid: string
+  parent_uuid: string | null
+  child_uuids: string[]
+  message: ChatMessage | null
+}
+```
+
+消息本体、文本块、tool_use、tool_result、citation 都属于 `domain`。
+
+### Runtime
+
+`runtime` 保存所有不属于 `ChatConversationDetail` 的本地状态：
+
+```ts
+interface ConversationRuntimeState {
+  status: ChatStatus
+  activeRequest: {
+    assistantMessageUuid: string
+    controller: AbortController
+  } | null
+  errorMessage: string | null
+  active_child_uuid_by_parent_uuid: Record<string, string>
   next_message_index: number
-  status: ChatStatus // 'ready' | 'submitted' | 'streaming' | 'error'
-}
-
-// 移除了 input 相关状态，交由 UI 组件自行管理
-```
-
-**关键设计决策：**
-- 剥离了 `input` 状态，避免高频键盘输入影响全局性能
-- 保留复杂的消息树结构（支持分支切换）
-- 纯函数 `chatReducer` 处理所有状态更新，易于测试和维护
-
-### 全局 Store (store/chat-store.ts)
-
-```typescript
-interface ConversationState extends ChatState {
-  activeRequest: ActiveRequest | null // 管理当前进行中的 SSE 请求
-}
-
-interface ChatStore {
-  conversations: Record<string, ConversationState> // 多会话隔离
-  initConversation: (id: string, initialLeaf?: string | null) => void
-  dispatch: (id: string, action: ChatAction) => void
-  sendMessage: (id: string, input: SendMessageInput) => Promise<void>
-  // ... 其他业务方法
 }
 ```
 
-**核心特性：**
-- **多会话字典结构**：`conversations[conversationId]` 完全隔离不同会话
-- **后台请求管理**：`activeRequest` + `AbortController` 在组件卸载后仍保持连接
-- **复用现有 Reducer**：直接调用 `chatReducer`，无需重写业务逻辑
+这里回答的问题是：
 
-### 原子化选择器 (store/chat-selectors.ts)
+- 当前前端是否正在提交或流式生成
+- 当前请求句柄是谁，能不能取消
+- 当前本地错误是什么
+- 每个父节点当前选中的子分支是谁
+- 下一条本地追加消息应该拿什么顺序号
 
-```typescript
-export const useConversationMessages = (id: string) => 
-  useChatStore(useShallow(state => {
-    const conv = state.conversations[id]
-    return conv ? selectCurrentBranchMessages(conv) : []
-  }))
+### Derived
 
-export const useConversationStatus = (id: string) => 
-  useChatStore(state => state.conversations[id]?.status ?? 'ready')
-```
+有一类数据不存状态，只通过 selector 计算：
 
-**性能优化：**
-- 使用 `useShallow` 避免不必要的重渲染
-- 组件只订阅自己关心的数据片段
-- 消息列表变化不会影响输入框，反之亦然
+- 当前分支消息数组
+- 每条消息的 `branchInfo`
+- UI 展示用 `plainText`
+- 当前 assistant 消息是否处于 streaming
 
-## UI 组件改造
+这些都在 `state/conversation-selectors.ts` 中派生，不进入 `domain` 或 `runtime`。
 
-### ConversationView 组件
+## File Responsibilities
 
-```typescript
-// 改造前：依赖巨型 useChat Hook
-const { messages, status, sendMessage, stop } = useChat({...})
+### `conversation-store.ts`
 
-// 改造后：按需订阅 + 精准调用
-const messages = useConversationMessages(conversationId)
-const status = useConversationStatus(conversationId)
-const sendMessage = useChatStore(state => state.sendMessage)
-```
+负责：
 
-**关键改进：**
-- 消除了 Prop Drilling，组件直接订阅所需状态
-- 方法调用需要传入 `conversationId`，支持多会话操作
-- `onConversationChanged` 回调通过 `.finally()` 包装，保持原有逻辑
+- 创建和维护 `conversations`
+- `sendMessage` / `regenerate` / `resumeStream` / `stop`
+- 管理 `AbortController`
+- 更新 `runtime.status`
+- 更新 `runtime.activeRequest`
+- 更新 `runtime.errorMessage`
+- 调用 `dispatchDomain(...)`
 
-### ConversationComposer 组件
+它不负责：
 
-```typescript
-// 完全本地化输入状态管理
-const [input, setInput] = useState('')
+- 手写深层消息树变更
+- 直接在多个地方散落操作 `mapping`
 
-const handleSubmit = async () => {
-  const text = input.trim()
-  setInput('') // 立即清空本地状态
-  await sendMessage(conversationId, { model: selectedModel, prompt: text })
+### `conversation-state.ts`
+
+负责：
+
+- `ConversationAction` 定义
+- `reduceConversationDomain(...)`
+- 消息树 append / merge / branch select
+- block delta / tool result / citation 等 domain 更新
+
+它不负责：
+
+- fetch
+- SSE 读取
+- AbortController
+- `status` / `activeRequest` / `errorMessage`
+
+### `conversation-runtime.ts`
+
+负责：
+
+- `ConversationRuntimeState` 类型
+- 运行态初始化
+- `buildActiveChildMap(...)`
+- `getNextMessageIndex(...)`
+
+### `conversation-selectors.ts`
+
+负责纯派生读取：
+
+- `selectCurrentBranchMessages(...)`
+- `selectBranchChildUuids(...)`
+- `getMessageByUuid(...)`
+- `findIncompleteStreamMessageUuid(...)`
+
+### `store/conversation-selectors.ts`
+
+负责把 Zustand store 包成面向组件的 hooks：
+
+- `useConversationMessages`
+- `useConversationStatus`
+- `useConversationErrorMessage`
+- `useConversationSummary`
+- `useMessage`
+
+## Update Rules
+
+### 1. Hydrate / Refresh
+
+服务端详情回来时：
+
+- `domain = detail`
+- `runtime.active_child_uuid_by_parent_uuid = buildActiveChildMap(...)`
+- `runtime.next_message_index = getNextMessageIndex(...)`
+- `runtime.status = "ready"`
+- `runtime.activeRequest = null`
+- `runtime.errorMessage = null`
+
+如果检测到存在未结束的 assistant message，则继续走 `resumeStream(...)`。
+
+### 2. Send Message
+
+发送消息时：
+
+1. 用 `isConversationBusy(...)` 判断当前会话是否在进行中
+2. 先通过 `dispatchDomain({ type: "message-appended" })` 乐观追加 user message
+3. 更新 `runtime.status = "submitted"`
+4. 创建并保存 `runtime.activeRequest`
+5. 发起 completion 请求
+
+### 3. Streaming Events
+
+SSE 处理在 `streaming/completion-stream.ts` 中完成。
+
+流事件会被翻译成 `ConversationAction`，例如：
+
+- `message_start` -> `message-appended`
+- `message_snapshot` -> `message-snapshot-received`
+- `content_block_delta` -> 各类 text/tool actions
+- `message_delta` -> `message-stop-reason-updated`
+- `message_limit` -> `message-metadata-updated`
+- `title` -> `title-updated`
+
+也就是说，stream 层只做“事件翻译”，不直接改 Zustand state。
+
+### 4. Domain Dispatch
+
+`dispatchDomain(conversationId, action)` 是 domain 更新的唯一入口。
+
+内部流程是：
+
+1. 取出当前 `conversation.domain`
+2. 取出 reducer 所需的 runtime 辅助字段
+3. 调用 `reduceConversationDomain(...)`
+4. 把返回的 `domain` 和 runtime 辅助结果写回 store
+
+这样可以把：
+
+- `mapping`
+- `current_leaf_message_uuid`
+- `active_child_uuid_by_parent_uuid`
+- `next_message_index`
+
+这种天然耦合的更新收拢到一个地方。
+
+### 5. Status / Request Lifecycle
+
+请求生命周期不进 reducer，而是在 store 中直接维护：
+
+- 提交前：`status = "submitted"`
+- assistant message 开始后：`status = "streaming"`
+- 正常结束：`status = "ready"`
+- 失败：`status = "error"`
+- 取消或 finally：清理 `activeRequest`
+
+这是当前设计里最重要的边界之一：
+
+- 会话内容变化 -> `dispatchDomain`
+- 请求生命周期变化 -> store 直接更新 runtime
+
+### 6. Branch Selection
+
+切换分支时：
+
+1. `dispatchDomain({ type: "branch-selected" })`
+2. reducer 内更新：
+   - `runtime.active_child_uuid_by_parent_uuid`
+   - `domain.current_leaf_message_uuid`
+3. store 再异步调用接口持久化 leaf
+
+如果持久化失败，只写 `runtime.errorMessage`，不强制回滚当前 UI 分支。
+
+## Busy Semantics
+
+当前“会话是否忙碌”的判断统一通过 `isConversationBusy(...)`：
+
+```ts
+function isConversationBusy(runtime?: Pick<ConversationRuntimeState, "status" | "activeRequest"> | null) {
+  return (
+    runtime?.status === "submitted" ||
+    runtime?.status === "streaming" ||
+    runtime?.activeRequest != null
+  )
 }
 ```
 
-**设计优势：**
-- 输入框状态完全本地化，避免全局状态频繁更新
-- 高频键盘输入只影响当前组件，性能最优
-- 发送时立即清空，用户体验流畅
+这里不只看 `status`，还要看 `activeRequest`，因为两者在 `finally` 清理前可能存在短暂不同步窗口。
 
-## 数据流图
+## Why This Design
 
-```
-用户输入 → ConversationComposer (本地状态)
-    ↓
-sendMessage(conversationId, payload)
-    ↓
-useChatStore.sendMessage (全局 Store)
-    ↓
-fetch + consumeChatCompletionStream (后台 SSE)
-    ↓
-dispatch(conversationId, action) → chatReducer → 状态更新
-    ↓
-useConversationMessages/useConversationStatus (原子订阅)
-    ↓
-UI 组件重渲染（仅相关组件）
-```
+这套设计不是为了“更标准”，而是为了控制复杂度。
 
-## 核心收益
+### 保留的复杂度
 
-### 1. 后台持久生成
-- 组件卸载 → Store 继续接收 SSE 数据
-- 页面切换回来 → UI 自动显示最新内容
-- 多标签页同时生成 → 互不干扰
+- 多会话
+- SSE 流式增量更新
+- 工具调用生命周期
+- branch / regenerate
+- 页面切换后恢复流
 
-### 2. 极致性能
-- 输入框打字：只重渲染输入组件
-- 消息流式输出：只重渲染消息列表
-- 状态变化：精准订阅，避免级联更新
+### 避免的复杂度
 
-### 3. 代码简洁
-- 无需复杂的 Prop Drilling
-- UI 组件职责单一，易于测试
-- 业务逻辑集中，便于维护
+- 不上状态机
+- 不引入 Redux Toolkit
+- 不把 selector 结果写回 store
+- 不把 runtime 再拆成更细的 request/view 子层
+- 不把 action 再拆成多个碎文件
 
-## 迁移指南
+换句话说，这是一套“足够清晰，但不过度设计”的实现。
 
-### 从 useChat 迁移
+## Typical Data Flow
 
-```typescript
-// 旧代码
-const { messages, status, sendMessage } = useChat({ conversationId })
-
-// 新代码
-const messages = useConversationMessages(conversationId)
-const status = useConversationStatus(conversationId)
-const sendMessage = useChatStore(state => state.sendMessage)
-
-// 调用时传入 conversationId
-await sendMessage(conversationId, { model, prompt })
+```text
+用户输入
+  -> ConversationComposer 本地 state
+  -> useConversationStore.getState().sendMessage(...)
+  -> conversation-store.ts 编排请求
+  -> processChatCompletionStream(...)
+  -> dispatchDomain(conversationId, action)
+  -> reduceConversationDomain(...)
+  -> useConversationMessages / useConversationStatus
+  -> UI 更新
 ```
 
-### 初始化会话
+## Notes
 
-```typescript
-// 在组件挂载时初始化
-useEffect(() => {
-  init(conversationId, initialLeaf, mapping)
-}, [conversationId, init])
-```
+- 输入框 `input`、`selectedModel`、编辑态等仍然保持组件本地状态
+- 当前分支消息数组始终是派生值，不允许冗余缓存到 runtime
+- `domain` 的唯一来源应该是服务端 detail 模型和 domain actions
+- 新增逻辑时，优先先判断它属于 `domain`、`runtime` 还是 `derived`
 
-## 最佳实践
+## File Map
 
-1. **避免在循环中使用 Hooks**：如需循环内数据，直接从 Store 获取原始状态
-2. **保持选择器纯粹**：选择器只做数据派生，不包含副作用
-3. **合理使用 useShallow**：对于对象/数组返回值，避免不必要的深度比较
-4. **错误处理集中化**：在 Store 层统一处理网络错误和异常
-
-## 文件结构
-
-```
+```text
 store/
-├── chat-store.ts      # 全局 Zustand Store，包含所有业务逻辑
-├── chat-selectors.ts  # 原子化选择器 Hooks
-└── README.md         # 本文档
-```
+├── conversation-store.ts
+├── conversation-selectors.ts
+└── README.md
 
-这种架构设计确保了聊天功能的可扩展性、性能和用户体验的极致平衡。
+state/
+├── conversation-state.ts
+├── conversation-runtime.ts
+├── conversation-selectors.ts
+└── index.ts
+```

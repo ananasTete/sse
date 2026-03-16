@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { toChatTimestamp } from '#/features/chat/utils'
+import { getISOTimestamp } from '#/features/chat/streaming'
 import { abortMessage } from '#/features/chat/server/events/event-bus'
 import { mutateConversation } from '#/features/chat/server'
 
@@ -9,6 +9,7 @@ export const Route = createFileRoute('/api/chat_conversations/$conversationId/ca
       POST: async ({ params, request }) => {
         const body = await request.json() as { message_id: string }
         const { message_id } = body
+        const stoppedAt = getISOTimestamp()
 
         if (!message_id) {
           return Response.json({ error: 'message_id is required' }, { status: 400 })
@@ -21,13 +22,17 @@ export const Route = createFileRoute('/api/chat_conversations/$conversationId/ca
         try {
           mutateConversation(params.conversationId, (conversation) => {
             const message = conversation.mapping[message_id]?.message
-            if (message && message.role === 'assistant') {
+            if (
+              message &&
+              message.role === 'assistant' &&
+              message.stop_reason === null
+            ) {
               message.stop_reason = 'user_canceled'
-              message.updated_at = toChatTimestamp()
+              message.updated_at = stoppedAt
               
               // Stop all content blocks
               for (const block of message.content) {
-                block.stop_timestamp ??= toChatTimestamp()
+                block.stop_timestamp ??= stoppedAt
               }
             }
           })

@@ -1,28 +1,28 @@
-import type { ChatState } from '../state/chat-state'
+import type { ConversationMapping } from "../state/conversation-domain-reducer";
 
 export interface ChatConversationSummary {
-  created_at: string
-  current_leaf_message_uuid: string | null
-  title: string
-  updated_at: string
-  uuid: string
+  created_at: string;
+  current_leaf_message_uuid: string | null;
+  title: string;
+  updated_at: string;
+  uuid: string;
 }
 
 export interface ChatConversationDetail extends ChatConversationSummary {
-  mapping: ChatState['mapping']
+  mapping: ConversationMapping;
 }
 
 export interface ChatConversationListResponse {
-  has_more: boolean
-  items: ChatConversationSummary[]
-  next_cursor: string | null
+  has_more: boolean;
+  items: ChatConversationSummary[];
+  next_cursor: string | null;
 }
 
 export interface CreateChatConversationInput {
-  uuid: string
+  uuid: string;
 }
 
 export interface PendingInitialConversationSubmission {
-  model: string
-  prompt: string
+  model: string;
+  prompt: string;
 }

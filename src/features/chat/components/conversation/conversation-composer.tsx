@@ -14,7 +14,7 @@ import { cn } from '#/lib/utils'
 
 interface ConversationComposerPanel {
   isPending: boolean
-  onStop: () => void
+  onStop: () => void | Promise<void>
   onSubmit: (payload: { model: string; prompt: string }) => void | Promise<void>
 }
 

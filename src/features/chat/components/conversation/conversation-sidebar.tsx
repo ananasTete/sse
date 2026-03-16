@@ -7,6 +7,7 @@ import {
   fetchChatConversationList,
 } from '../../api/conversation-api'
 import type { ChatConversationListResponse } from '../../models/conversation'
+import { getConversationDisplayTitle } from '../../streaming/conversation'
 import { cn } from '#/lib/utils'
 
 export function ConversationSidebar() {
@@ -102,6 +103,7 @@ export function ConversationSidebar() {
           ) : conversations.length > 0 ? (
             conversations.map((conversation) => {
               const isActive = pathname === `/chat/${conversation.uuid}`
+              const displayTitle = getConversationDisplayTitle(conversation.title)
 
               return (
                 <Link
@@ -116,20 +118,20 @@ export function ConversationSidebar() {
                     collapsed && 'justify-center px-0',
                   )}
                   key={conversation.uuid}
-                  title={conversation.title}
+                  title={displayTitle}
                   to="/chat/$conversationId"
                   params={{ conversationId: conversation.uuid }}
                 >
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)]">
                     <span className="text-xs font-semibold">
-                      {conversation.title.slice(0, 1).toUpperCase()}
+                      {displayTitle.slice(0, 1).toUpperCase()}
                     </span>
                   </div>
 
                   {!collapsed ? (
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-[var(--sea-ink)]">
-                        {conversation.title}
+                        {displayTitle}
                       </div>
                       <div className="truncate text-xs text-[var(--sea-ink-soft)]">
                         {new Date(conversation.updated_at).toLocaleString()}
