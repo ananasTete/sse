@@ -24,8 +24,8 @@ import {
   getChatConversationCancelPath,
   updateChatConversationCurrentLeaf,
 } from "../api/conversation-api";
+import { createUserMessage } from "../message-builders";
 import { processChatCompletionStream } from "../streaming/completion-stream";
-import { createUserMessage } from "../streaming/message-builders";
 import { getISOTimestamp } from "../streaming/time";
 import { DEFAULT_MODEL, ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
 import type { ChatConversationDetail } from "../models/conversation";
@@ -195,14 +195,8 @@ export const useConversationStore = create<ConversationStore>()(
         await processChatCompletionStream({
           response,
           dispatch: (action) => get().dispatchDomain(conversationId, action),
-          onAssistantMessageStarted: (serverAssistantMessageUuid) => {
+          onAssistantMessageStarted: () => {
             withConversation(conversationId, (conversation) => {
-              const activeRequest = conversation.runtime.activeRequest;
-
-              if (activeRequest?.controller === controller) {
-                activeRequest.assistantMessageUuid = serverAssistantMessageUuid;
-              }
-
               conversation.runtime.status = "streaming";
             });
           },

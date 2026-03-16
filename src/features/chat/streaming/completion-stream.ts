@@ -4,7 +4,7 @@ import {
   createAssistantMessage,
   createContentBlock,
   createToolResultBlock,
-} from "./message-builders";
+} from "../message-builders";
 import type {
   ChatCitation,
   ChatCompletionContentBlockDeltaEvent,
@@ -76,7 +76,7 @@ export async function processChatCompletionStream({
 }: {
   response: Response;
   dispatch: (action: ConversationAction) => void;
-  onAssistantMessageStarted?: (assistantMessageUuid: string) => void;
+  onAssistantMessageStarted?: () => void;
   onTitleGenerated?: (title: string) => void;
 }) {
   const responseBody = assertSuccessfulResponse(response);
@@ -101,9 +101,10 @@ export async function processChatCompletionStream({
       case "message_start": {
         const payload = JSON.parse(data) as ChatCompletionMessageStartEvent;
 
-        assistantMessageUuid = payload.message.uuid;
-        onAssistantMessageStarted?.(assistantMessageUuid);
+        // 更新 status
+        onAssistantMessageStarted?.();
 
+        // 添加 assistant message，为什么要在这里创建好 message 而不是在 reducer 中创建？
         dispatch({
           message: createAssistantMessage(payload),
           type: "message-appended",
@@ -111,10 +112,10 @@ export async function processChatCompletionStream({
         break;
       }
       case "message_snapshot": {
+        // 在 resume 时该事件会返回被中断的响应消息
         const payload = JSON.parse(data) as ChatCompletionMessageSnapshotEvent;
 
-        assistantMessageUuid = payload.message.uuid;
-        onAssistantMessageStarted?.(assistantMessageUuid);
+        onAssistantMessageStarted?.();
 
         dispatch({
           message: payload.message,

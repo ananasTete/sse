@@ -1,15 +1,39 @@
 import { describe, expect, it } from "vitest";
 
 import { ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
-import { buildConversationDetailSnapshot } from "../streaming/conversation";
+import type {
+  ChatConversationDetail,
+  ChatConversationSummary,
+} from "../models/conversation";
 import {
   isConversationDetailEmpty,
   shouldUsePendingConversationSeed,
 } from "./conversation-cache";
 
+function createConversationDetailSnapshot({
+  summary,
+  title,
+}: {
+  summary: ChatConversationSummary;
+  title?: string;
+}): ChatConversationDetail {
+  return {
+    ...summary,
+    mapping: {
+      [ROOT_PARENT_MESSAGE_UUID]: {
+        child_uuids: [],
+        message: null,
+        parent_uuid: null,
+        uuid: ROOT_PARENT_MESSAGE_UUID,
+      },
+    },
+    title: title ?? summary.title,
+  };
+}
+
 describe("conversation detail helpers", () => {
   it("treats a seeded snapshot for a new conversation as empty", () => {
-    const detail = buildConversationDetailSnapshot({
+    const detail = createConversationDetailSnapshot({
       summary: {
         created_at: "2026-03-12T00:00:00.000Z",
         current_leaf_message_uuid: null,
@@ -58,7 +82,7 @@ describe("conversation detail helpers", () => {
 
     expect(
       shouldUsePendingConversationSeed({
-        detail: buildConversationDetailSnapshot({
+        detail: createConversationDetailSnapshot({
           summary: {
             created_at: "2026-03-12T00:00:00.000Z",
             current_leaf_message_uuid: null,

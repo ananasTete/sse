@@ -7,8 +7,17 @@ import {
   fetchChatConversationList,
 } from '../../api/conversation-api'
 import type { ChatConversationListResponse } from '../../models/conversation'
-import { getConversationDisplayTitle } from '../../streaming/conversation'
 import { cn } from '#/lib/utils'
+
+const FALLBACK_CONVERSATION_TITLE = 'New conversation'
+
+function getConversationDisplayTitle(title: string | null | undefined) {
+  const normalizedTitle = title?.trim()
+
+  return normalizedTitle && normalizedTitle.length > 0
+    ? normalizedTitle
+    : FALLBACK_CONVERSATION_TITLE
+}
 
 export function ConversationSidebar() {
   const [collapsed, setCollapsed] = useState(false)

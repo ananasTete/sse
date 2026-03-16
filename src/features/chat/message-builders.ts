@@ -1,11 +1,11 @@
-import { getISOTimestamp } from "./time";
+import { getISOTimestamp } from "./streaming/time";
 import type {
   ChatCompletionContentBlockStartEvent,
   ChatCompletionMessageStartEvent,
   ChatToolResultContent,
   ChatToolUseContent,
   NewChatMessage,
-} from "../models/chat";
+} from "./models/chat";
 
 export function createUserMessage({
   files,
