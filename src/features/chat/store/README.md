@@ -13,7 +13,7 @@
 - Zustand 负责全局 store
 - `conversation-store.ts` 负责副作用编排与运行态更新
 - `conversation-state.ts` 负责 domain reducer
-- `conversation-selectors.ts` 负责派生读取
+- `conversation-hooks.ts` 负责基于 store 的派生读取
 
 ## Core Model
 
@@ -152,7 +152,7 @@ interface ConversationRuntimeState {
 - `buildActiveChildMap(...)`
 - `getNextMessageIndex(...)`
 
-### `conversation-selectors.ts`
+### `state/conversation-selectors.ts`
 
 负责纯派生读取：
 
@@ -161,7 +161,7 @@ interface ConversationRuntimeState {
 - `getMessageByUuid(...)`
 - `findIncompleteStreamMessageUuid(...)`
 
-### `store/conversation-selectors.ts`
+### `store/conversation-hooks.ts`
 
 负责把 Zustand store 包成面向组件的 hooks：
 
@@ -322,7 +322,7 @@ function isConversationBusy(runtime?: Pick<ConversationRuntimeState, "status" | 
 ```text
 store/
 ├── conversation-store.ts
-├── conversation-selectors.ts
+├── conversation-hooks.ts
 └── README.md
 
 state/

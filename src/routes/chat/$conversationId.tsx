@@ -10,7 +10,7 @@ import { useConversationStore } from '#/features/chat/store/conversation-store'
 import {
   useConversationSummary,
   useHasConversation,
-} from '#/features/chat/store/conversation-selectors'
+} from '#/features/chat/store/conversation-hooks'
 import { useEffect } from 'react'
 
 export const Route = createFileRoute('/chat/$conversationId')({
