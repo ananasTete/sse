@@ -1,5 +1,5 @@
 import { formatSseEvent } from "../../streaming";
-import { getISOTimestamp } from "../../streaming/time";
+import { getISOTimestamp } from "../../utils/time";
 import {
   mutateConversation,
   updateConversationSummaryFields,

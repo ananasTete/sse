@@ -1,12 +1,12 @@
-import { createSseParser } from "./sse";
-import { getISOTimestamp } from "./time";
+import { createSseParser } from "./sse-parser";
+import { getISOTimestamp } from "../utils/time";
 import {
   createAssistantMessage,
   createContentBlock,
   createToolResultBlock,
-} from "../message-builders";
+} from "../store/message-builders";
+import type { ChatCitation } from "../models/message";
 import type {
-  ChatCitation,
   ChatCompletionContentBlockDeltaEvent,
   ChatCompletionContentBlockStartEvent,
   ChatCompletionContentBlockStopEvent,
@@ -14,8 +14,8 @@ import type {
   ChatCompletionMessageLimitEvent,
   ChatCompletionMessageSnapshotEvent,
   ChatCompletionMessageStartEvent,
-} from "../models/chat";
-import type { ConversationAction } from "../state/conversation-domain-reducer";
+} from "../models/events";
+import type { ConversationAction } from "../store/conversation-reducer";
 
 type ActiveContentBlock =
   | {

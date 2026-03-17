@@ -1,9 +1,14 @@
-import type { ChatStatus } from "../models/chat";
-import type { ConversationMapping } from "./conversation-domain-reducer";
+import type { ChatStatus } from "../models/message";
+import type { ConversationMapping } from "../models/conversation-node";
 
 export interface ActiveRequest {
   assistantMessageUuid: string;
   controller: AbortController;
+}
+
+export interface ConversationRuntimeHelpers {
+  active_child_uuid_by_parent_uuid: Record<string, string>;
+  next_message_index: number;
 }
 
 export interface ConversationRuntimeState {

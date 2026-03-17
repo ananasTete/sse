@@ -16,7 +16,7 @@ import {
   useConversationErrorMessage,
   useConversationMessages,
   useConversationStatus,
-} from '../../store/conversation-hooks'
+} from '../../hooks'
 import { cn } from '#/lib/utils'
 import { ConversationComposer } from './conversation-composer'
 

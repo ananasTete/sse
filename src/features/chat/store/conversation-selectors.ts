@@ -3,8 +3,9 @@
  * All selectors are side-effect free and depend only on their arguments.
  */
 
-import type { BranchInfo, ChatContent, ChatStatus, UIMessage } from "../models/chat";
+import type { ChatContent, ChatStatus } from "../models/message";
 import type { ChatConversationDetail } from "../models/conversation";
+import type { BranchInfo, UIMessage } from "../models/ui";
 
 function getTextContent(blocks: ChatContent[]) {
   return blocks

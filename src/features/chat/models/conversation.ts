@@ -1,4 +1,4 @@
-import type { ConversationMapping } from "../state/conversation-domain-reducer";
+import type { ConversationMapping } from "./conversation-node";
 
 export interface ChatConversationSummary {
   created_at: string;

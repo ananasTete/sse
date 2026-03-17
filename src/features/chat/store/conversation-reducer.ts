@@ -6,24 +6,13 @@ import type {
   ChatToolResultContent,
   ChatToolUseContent,
   NewChatMessage,
-} from "../models/chat";
+} from "../models/message";
 import type { ChatConversationDetail } from "../models/conversation";
+import type { ConversationMapping } from "../models/conversation-node";
 import { ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
-import type { ConversationRuntimeState } from "./conversation-runtime";
+import type { ConversationRuntimeHelpers } from "./conversation-runtime";
 
-export interface ConversationNode {
-  child_uuids: string[];
-  message: ChatMessage | null;
-  parent_uuid: string | null;
-  uuid: string;
-}
-
-export type ConversationMapping = Record<string, ConversationNode>;
 export type ConversationDomainState = ChatConversationDetail;
-export type ConversationRuntimeHelpers = Pick<
-  ConversationRuntimeState,
-  "active_child_uuid_by_parent_uuid" | "next_message_index"
->;
 
 export type ConversationAction =
   | {

@@ -4,7 +4,7 @@ import {
   type ParseError,
 } from "eventsource-parser";
 
-import type { ChatCompletionSseEvent } from "../models/chat";
+import type { ChatCompletionSseEvent } from "../models/events";
 
 export interface ParsedSseEvent {
   data: string;

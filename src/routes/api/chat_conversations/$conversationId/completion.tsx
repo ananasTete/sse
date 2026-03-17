@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import {
   getISOTimestamp,
-} from '#/features/chat/streaming'
+} from '#/features/chat/utils/time'
 import { runBackgroundGeneration } from '#/features/chat/server/events/generator'
 import {
   mutateConversation,

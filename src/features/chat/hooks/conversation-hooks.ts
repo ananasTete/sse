@@ -4,8 +4,8 @@ import {
   getMessageByUuid,
   selectBranchChildUuids,
   selectCurrentBranchMessages,
-} from "../state/conversation-selectors";
-import { useConversationStore } from "./conversation-store";
+} from "../store/conversation-selectors";
+import { useConversationStore } from "../store/conversation-store";
 
 export const useHasConversation = (conversationId: string) => {
   return useConversationStore(

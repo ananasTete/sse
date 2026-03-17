@@ -12,7 +12,7 @@ import type {
   ChatConversationListResponse,
   ChatConversationSummary,
 } from "../models/conversation";
-import type { ConversationMapping } from "../state/conversation-domain-reducer";
+import type { ConversationMapping } from "../models/conversation-node";
 
 const DEFAULT_PAGE_SIZE = 20;
 

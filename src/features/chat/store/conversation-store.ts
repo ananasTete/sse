@@ -6,27 +6,27 @@ import {
   createEmptyConversationDomain,
   type ConversationAction,
   type ConversationDomainState,
-} from "../state/conversation-domain-reducer";
+} from "./conversation-reducer";
 import {
   buildActiveChildMap,
   createInitialConversationRuntimeState,
   getNextMessageIndex,
   type ActiveRequest,
   type ConversationRuntimeState,
-} from "../state/conversation-runtime";
+} from "./conversation-runtime";
 import {
   findIncompleteStreamMessageUuid,
   getMessageByUuid,
-} from "../state/conversation-selectors";
+} from "./conversation-selectors";
 import {
   fetchChatConversationDetail,
   getChatCompletionPath,
   getChatConversationCancelPath,
   updateChatConversationCurrentLeaf,
 } from "../api/conversation-api";
-import { createUserMessage } from "../message-builders";
+import { createUserMessage } from "./message-builders";
 import { processChatCompletionStream } from "../streaming/completion-stream";
-import { getISOTimestamp } from "../streaming/time";
+import { getISOTimestamp } from "../utils/time";
 import { DEFAULT_MODEL, ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
 import type { ChatConversationDetail } from "../models/conversation";
 import type {
@@ -34,7 +34,7 @@ import type {
   EditUserMessageInput,
   RegenerateMessageInput,
   SendMessageInput,
-} from "../models/chat";
+} from "../models/requests";
 
 export interface ConversationState {
   domain: ConversationDomainState;

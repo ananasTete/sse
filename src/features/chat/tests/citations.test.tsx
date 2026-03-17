@@ -5,18 +5,19 @@ import { describe, expect, it } from "vitest";
 
 import { processChatCompletionStream } from '../streaming/completion-stream';
 import { MarkdownText } from '../components/message/markdown-text';
-import { formatSseEvent } from '../streaming/sse';
+import { formatSseEvent } from '../streaming/sse-parser';
 import {
 	createEmptyConversationDomain,
 	reduceConversationDomain,
 	type ConversationAction,
-} from '../state/conversation-domain-reducer';
+} from '../store/conversation-reducer';
 import {
 	createInitialConversationRuntimeState,
 	type ConversationRuntimeState,
-} from '../state/conversation-runtime';
-import { selectCurrentBranchMessages } from '../state/conversation-selectors';
-import type { ChatCitation, ChatCompletionSseEvent } from '../models/chat';
+} from '../store/conversation-runtime';
+import { selectCurrentBranchMessages } from '../store/conversation-selectors';
+import type { ChatCitation } from '../models/message';
+import type { ChatCompletionSseEvent } from '../models/events';
 
 function createStreamingResponse(events: ChatCompletionSseEvent[]) {
 	const encoder = new TextEncoder();
@@ -153,6 +154,8 @@ describe("citation streaming", () => {
 
 		const initialRuntime = createInitialConversationRuntimeState();
 		const reducedState = actions.reduce(
+			(state, action) =>
+				reduceConversationDomain(state.domain, state.runtime, action),
 			{
 				domain: createEmptyConversationDomain(
 					'conversation-1',
@@ -164,8 +167,6 @@ describe("citation streaming", () => {
 					next_message_index: initialRuntime.next_message_index,
 				},
 			},
-			(state, action) =>
-				reduceConversationDomain(state.domain, state.runtime, action),
 		);
 		const finalState = {
 			domain: reducedState.domain,
