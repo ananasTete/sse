@@ -6,29 +6,32 @@ export interface ActiveRequest {
   controller: AbortController;
 }
 
-export interface ConversationRuntimeHelpers {
-  active_child_uuid_by_parent_uuid: Record<string, string>;
-  next_message_index: number;
-}
-
+/**
+ * 运行时状态：仅描述"程序当前在做什么"，不描述业务实体。
+ *
+ * 特点：
+ * - 不可序列化（AbortController）或刷新后无意义
+ * - 不需要持久化到后端
+ * - 随进程生命周期消亡
+ */
 export interface ConversationRuntimeState {
   activeRequest: ActiveRequest | null;
-  active_child_uuid_by_parent_uuid: Record<string, string>;
   errorMessage: string | null;
-  next_message_index: number;
   status: ChatStatus;
 }
 
 export function createInitialConversationRuntimeState(): ConversationRuntimeState {
   return {
     activeRequest: null,
-    active_child_uuid_by_parent_uuid: {},
     errorMessage: null,
-    next_message_index: 0,
     status: "ready",
   };
 }
 
+/**
+ * 从消息树和当前叶子节点构建"活跃子节点映射"。
+ * 用于在 hydrate 时初始化 domain.active_child_uuid_by_parent_uuid。
+ */
 export function buildActiveChildMap(
   mapping: ConversationMapping,
   currentLeafMessageUuid: string | null,
@@ -59,6 +62,10 @@ export function buildActiveChildMap(
   return activeChildUuidByParentUuid;
 }
 
+/**
+ * 从消息树中推算下一条消息应使用的顺序号（即最大 index + 1）。
+ * 用于在 hydrate 时初始化 domain.next_message_index。
+ */
 export function getNextMessageIndex(mapping: ConversationMapping) {
   return (
     Object.values(mapping).reduce(

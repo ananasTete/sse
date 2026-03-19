@@ -116,7 +116,7 @@ function buildMockReplySegments(
         body.trigger === "regenerate"
           ? prompt
             ? `Regenerated response to: **${prompt}**\n\n`
-            : `Regenerated response for user message \`${body.parent_message_uuid}\`\n\n`
+            : `Regenerated response for user message \`${body.parent_uuid}\`\n\n`
           : `Mock response to: **${query}**\n\n`,
       type: "text",
     },
@@ -149,12 +149,14 @@ function buildMockReplySegments(
 export async function runBackgroundGeneration({
   conversationId,
   assistantMessageUuid,
+  assistantTimestamp,
   body,
   assistantParentUuid,
   toolUseId,
 }: {
   conversationId: string;
   assistantMessageUuid: string;
+  assistantTimestamp: string;
   body: ChatCompletionRequest;
   assistantParentUuid: string;
   toolUseId: string;
@@ -175,7 +177,7 @@ export async function runBackgroundGeneration({
 
   const enqueue = (chunk: string) => {
     if (isAborted(assistantMessageUuid)) return false;
-    const match = chunk.match(/event: ([a-z_]+)/);
+    const match = chunk.match(/"type"\s*:\s*"([a-z_]+)"/);
     publishEvent(assistantMessageUuid, chunk, match ? match[1] : undefined);
     return true;
   };
@@ -192,6 +194,7 @@ export async function runBackgroundGeneration({
         formatSseEvent("message_start", {
           message: {
             content: [],
+            created_at: assistantTimestamp,
             id: `chatcompl_${assistantMessageUuid.replaceAll("-", "")}`,
             model: body.model,
             parent_uuid: assistantParentUuid,
@@ -199,6 +202,7 @@ export async function runBackgroundGeneration({
             stop_reason: null,
             stop_sequence: null,
             type: "message",
+            updated_at: assistantTimestamp,
             uuid: assistantMessageUuid,
           },
           type: "message_start",
@@ -397,8 +401,10 @@ export async function runBackgroundGeneration({
     if (
       !enqueue(
         formatSseEvent("content_block_stop", {
+          content_block: {
+            stop_timestamp: textBlockStopTimestamp,
+          },
           index: 2,
-          stop_timestamp: textBlockStopTimestamp,
           type: "content_block_stop",
         }),
       )
@@ -408,49 +414,13 @@ export async function runBackgroundGeneration({
 
     await sleep(120);
 
-    // Message delta
-    if (
-      !enqueue(
-        formatSseEvent("message_delta", {
-          delta: {
-            stop_reason: "end_turn",
-            stop_sequence: null,
-          },
-          type: "message_delta",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    await sleep(120);
-
-    // Message limit (mock)
-    if (
-      !enqueue(
-        formatSseEvent("message_limit", {
-          message_limit: {
-            overageDisabledReason: null,
-            overageInUse: false,
-            perModelLimit: null,
-            remaining: 100,
-            representativeClaim: null,
-            resetsAt: Date.now() + 3600000,
-            type: "requests",
-            windows: {},
-          },
-          type: "message_limit",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    await sleep(20);
-
-    // Final message stop
+    // Final message stop (with stop reason)
     enqueue(
       formatSseEvent("message_stop", {
+        message: {
+          stop_reason: "end_turn",
+          stop_sequence: null,
+        },
         type: "message_stop",
       }),
     );

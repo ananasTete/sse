@@ -25,15 +25,15 @@ export function getMessagePlainText(blocks: ChatContent[]) {
 }
 
 type ConversationReadState = {
-  domain: Pick<ChatConversationDetail, "current_leaf_message_uuid" | "mapping">;
-  runtime: Pick<
-    {
+  domain: Pick<
+    ChatConversationDetail & {
       active_child_uuid_by_parent_uuid: Record<string, string>;
-      status: ChatStatus;
     },
-    "active_child_uuid_by_parent_uuid" | "status"
+    "current_leaf_message_uuid" | "mapping" | "active_child_uuid_by_parent_uuid"
   >;
+  runtime: Pick<{ status: ChatStatus }, "status">;
 };
+
 
 export function selectCurrentBranchMessages(
   conversation: ConversationReadState,

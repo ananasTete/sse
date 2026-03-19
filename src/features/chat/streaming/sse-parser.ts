@@ -58,8 +58,8 @@ export function createSseParser(onEvent: (event: ParsedSseEvent) => void) {
 }
 
 export function formatSseEvent(
-  event: ChatCompletionSseEvent["type"],
+  _event: ChatCompletionSseEvent["type"],
   data: ChatCompletionSseEvent,
 ) {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  return `data: ${JSON.stringify(data)}\n\n`;
 }

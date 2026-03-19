@@ -8,6 +8,7 @@ import type {
 export interface ChatCompletionMessageStartEvent {
   message: {
     content: []
+    created_at: string
     id: string
     model: string
     parent_uuid: string
@@ -15,6 +16,7 @@ export interface ChatCompletionMessageStartEvent {
     stop_reason: null
     stop_sequence: string | null
     type: 'message'
+    updated_at: string
     uuid: string
   }
   type: 'message_start'
@@ -92,20 +94,18 @@ export interface ChatCompletionContentBlockDeltaEvent {
 }
 
 export interface ChatCompletionContentBlockStopEvent {
+  content_block: {
+    stop_timestamp: string
+  }
   index: number
-  stop_timestamp: string
   type: 'content_block_stop'
 }
 
-export interface ChatCompletionMessageDeltaEvent {
-  delta: {
+export interface ChatCompletionMessageStopEvent {
+  message: {
     stop_reason: Exclude<ChatStopReason, 'user_canceled' | null>
     stop_sequence: string | null
   }
-  type: 'message_delta'
-}
-
-export interface ChatCompletionMessageStopEvent {
   type: 'message_stop'
 }
 
@@ -119,12 +119,17 @@ export interface ChatCompletionMessageSnapshotEvent {
   type: 'message_snapshot'
 }
 
+export interface ChatCompletionTitleEvent {
+  title: string
+  type: 'title'
+}
+
 export type ChatCompletionSseEvent =
   | ChatCompletionContentBlockDeltaEvent
   | ChatCompletionContentBlockStartEvent
   | ChatCompletionContentBlockStopEvent
   | ChatCompletionMessageLimitEvent
   | ChatCompletionMessageSnapshotEvent
-  | ChatCompletionMessageDeltaEvent
   | ChatCompletionMessageStartEvent
   | ChatCompletionMessageStopEvent
+  | ChatCompletionTitleEvent

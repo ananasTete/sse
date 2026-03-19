@@ -14,6 +14,7 @@ import {
   type ActiveRequest,
   type ConversationRuntimeState,
 } from "./conversation-runtime";
+
 import {
   findIncompleteStreamMessageUuid,
   getMessageByUuid,
@@ -75,15 +76,15 @@ function createConversationState(
   detail: ChatConversationDetail,
 ): ConversationState {
   return {
-    domain: detail,
-    runtime: {
-      ...createInitialConversationRuntimeState(),
+    domain: {
+      ...detail,
       active_child_uuid_by_parent_uuid: buildActiveChildMap(
         detail.mapping,
         detail.current_leaf_message_uuid,
       ),
       next_message_index: getNextMessageIndex(detail.mapping),
     },
+    runtime: createInitialConversationRuntimeState(),
   };
 }
 
@@ -270,7 +271,7 @@ export const useConversationStore = create<ConversationStore>()(
         });
       },
 
-      // 分发更新 domain 数据的 action
+      // 分发更新 domain 数据的 action，domain 状态机的唯一入口
       dispatchDomain: (conversationId, action) => {
         set((draft) => {
           const conversation = draft.conversations[conversationId];
@@ -279,22 +280,10 @@ export const useConversationStore = create<ConversationStore>()(
             return;
           }
 
-          // 应用 domain action，也可能更新 runtime 状态中的部分状态所以一块传过去
-          const nextState = reduceConversationDomain(
+          conversation.domain = reduceConversationDomain(
             conversation.domain,
-            {
-              active_child_uuid_by_parent_uuid:
-                conversation.runtime.active_child_uuid_by_parent_uuid,
-              next_message_index: conversation.runtime.next_message_index,
-            },
             action,
           );
-
-          conversation.domain = nextState.domain;
-          conversation.runtime.active_child_uuid_by_parent_uuid =
-            nextState.runtime.active_child_uuid_by_parent_uuid;
-          conversation.runtime.next_message_index =
-            nextState.runtime.next_message_index;
         });
       },
 
@@ -374,7 +363,7 @@ export const useConversationStore = create<ConversationStore>()(
               body: JSON.stringify({
                 files,
                 model: messageModel,
-                parent_message_uuid: parentMessageUuid,
+                parent_uuid: parentMessageUuid,
                 prompt: normalizedPrompt,
                 trigger: "submit",
                 turn_message_uuids: {
@@ -423,7 +412,7 @@ export const useConversationStore = create<ConversationStore>()(
               body: JSON.stringify({
                 files: parentMessage.files,
                 model: input?.model ?? parentMessage.model ?? DEFAULT_MODEL,
-                parent_message_uuid: parentMessage.uuid,
+                parent_uuid: parentMessage.uuid,
                 prompt: input?.prompt ?? "",
                 trigger: "regenerate",
                 turn_message_uuids: {
@@ -453,7 +442,7 @@ export const useConversationStore = create<ConversationStore>()(
         await get().sendMessage(conversationId, {
           files: userMessage.files,
           model: input.model,
-          parentMessageUuid: userMessage.parent_message_uuid,
+          parentMessageUuid: userMessage.parent_uuid,
           prompt: input.prompt,
         });
       },
@@ -476,7 +465,7 @@ export const useConversationStore = create<ConversationStore>()(
 
         await get().regenerateUserMessage(
           conversationId,
-          assistantMessage.parent_message_uuid,
+          assistantMessage.parent_uuid,
           {
             ...input,
             model: input?.model ?? assistantMessage.model,

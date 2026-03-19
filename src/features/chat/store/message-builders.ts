@@ -38,7 +38,7 @@ export function createUserMessage({
     files,
     metadata: {},
     model,
-    parent_message_uuid: parentMessageUuid,
+    parent_uuid: parentMessageUuid,
     role: "user",
     stop_reason: null,
     updated_at: timestamp,
@@ -47,19 +47,28 @@ export function createUserMessage({
 }
 
 export function createAssistantMessage(event: ChatCompletionMessageStartEvent) {
-  const timestamp = getISOTimestamp();
+  const {
+    uuid,
+    parent_uuid,
+    model,
+    stop_reason,
+    content,
+    role,
+    created_at,
+    updated_at,
+  } = event.message;
 
   return {
-    content: [],
-    created_at: timestamp,
+    content,
+    created_at,
     files: [],
     metadata: {},
-    model: event.message.model,
-    parent_message_uuid: event.message.parent_uuid,
-    role: "assistant",
-    stop_reason: event.message.stop_reason,
-    updated_at: timestamp,
-    uuid: event.message.uuid,
+    model,
+    parent_uuid,
+    role,
+    stop_reason,
+    updated_at,
+    uuid,
   } satisfies NewChatMessage;
 }
 

@@ -13,7 +13,6 @@ import {
 } from '../store/conversation-reducer';
 import {
 	createInitialConversationRuntimeState,
-	type ConversationRuntimeState,
 } from '../store/conversation-runtime';
 import { selectCurrentBranchMessages } from '../store/conversation-selectors';
 import type { ChatCitation } from '../models/message';
@@ -135,45 +134,32 @@ describe("citation streaming", () => {
 					type: "content_block_delta",
 				},
 				{
+					content_block: {
+						stop_timestamp: "2026-03-11T12:00:02.000Z",
+					},
 					index: 0,
-					stop_timestamp: "2026-03-11T12:00:02.000Z",
 					type: "content_block_stop",
 				},
 				{
-					delta: {
+					message: {
 						stop_reason: "end_turn",
 						stop_sequence: null,
 					},
-					type: "message_delta",
-				},
-				{
 					type: "message_stop",
 				},
 			]),
 		});
 
-		const initialRuntime = createInitialConversationRuntimeState();
-		const reducedState = actions.reduce(
-			(state, action) =>
-				reduceConversationDomain(state.domain, state.runtime, action),
-			{
-				domain: createEmptyConversationDomain(
-					'conversation-1',
-					'2026-03-11T12:00:00.000Z',
-				),
-				runtime: {
-					active_child_uuid_by_parent_uuid:
-						initialRuntime.active_child_uuid_by_parent_uuid,
-					next_message_index: initialRuntime.next_message_index,
-				},
-			},
+		const finalDomain = actions.reduce(
+			(domain, action) => reduceConversationDomain(domain, action),
+			createEmptyConversationDomain(
+				'conversation-1',
+				'2026-03-11T12:00:00.000Z',
+			),
 		);
 		const finalState = {
-			domain: reducedState.domain,
-			runtime: {
-				...initialRuntime,
-				...reducedState.runtime,
-			} satisfies ConversationRuntimeState,
+			domain: finalDomain,
+			runtime: createInitialConversationRuntimeState(),
 		};
 		const [message] = selectCurrentBranchMessages(finalState);
 		const textBlock = message?.content[0];

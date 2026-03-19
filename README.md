@@ -53,7 +53,7 @@ interface Message {
   metadata: {
     message_limit?: MessageLimit;
   };
-  parent_message_uuid: string;
+  parent_uuid: string;
 }
 
 interface ContentType {
@@ -137,8 +137,8 @@ interface MessageLimit {
 约束：
 
 - `messages` 表示“当前活跃分支”的线性顺序数组，但它是由内部树结构派生出来的。
-- 每条消息都保留 `uuid`、`parent_message_uuid` 和 `index`。
-- 首条用户消息的 `parent_message_uuid` 使用固定根节点：
+- 每条消息都保留 `uuid`、`parent_uuid` 和 `index`。
+- 首条用户消息的 `parent_uuid` 使用固定根节点：
   `"00000000-0000-4000-8000-000000000000"`。
 - `index` 只表示消息创建顺序，不参与分支顺序判断。
 - 例如：`user = 0`、`assistant = 1`、同一 user 下重新生成出的 `assistant = 2`、下一条 user 再是 `3`。
@@ -198,9 +198,9 @@ type regenerateUserMessage = (
 - `regenerateUserMessage` 只能对 user 消息调用。
 - 会复用该 user 消息的 `files`。
 - 重新生成时不会创建新的 user 消息。
-- 新 assistant 消息的 `parent_message_uuid` 指向该 user 消息本身。
+- 新 assistant 消息的 `parent_uuid` 指向该 user 消息本身。
 - 请求体中的 `trigger` 为 `"regenerate"`。
-- `prompt` 允许为空字符串；服务端应优先基于 `parent_message_uuid` 回溯原 user 消息。
+- `prompt` 允许为空字符串；服务端应优先基于 `parent_uuid` 回溯原 user 消息。
 - 当 `status` 为 `submitted` 或 `streaming` 时调用，直接抛错。
 
 ### 2.5 regenerate
@@ -233,7 +233,7 @@ type editUserMessage = (
 约束：
 
 - `editUserMessage` 只能对 user 消息调用。
-- 它不会原地覆盖旧消息，而是在该 user 消息的 `parent_message_uuid` 下创建一个新的 user sibling。
+- 它不会原地覆盖旧消息，而是在该 user 消息的 `parent_uuid` 下创建一个新的 user sibling。
 - 新 user sibling 使用“当前输入区选择的模型”，不会沿用旧 user message 的 `model`。
 - 随后继续走普通 `sendMessage` 的 `submit` 流程。
 - 所以“编辑”在产品语义上等价于“基于这条历史 user 消息 fork 一个新版本”。
@@ -304,7 +304,7 @@ POST /api/chat_conversations/{conversationId}/completion
 type ChatCompletionRequest =
   | {
       prompt: 'hi'
-      parent_message_uuid: '019ccd92-d437-70fc-a9fc-5a893f12fa70'
+      parent_uuid: '019ccd92-d437-70fc-a9fc-5a893f12fa70'
       model: 'claude-sonnet-4-6'
       trigger: 'submit'
       turn_message_uuids: {
@@ -315,7 +315,7 @@ type ChatCompletionRequest =
     }
   | {
       prompt: ''
-      parent_message_uuid: '019cd069-55c3-7190-a212-cac6a56e74ab'
+      parent_uuid: '019cd069-55c3-7190-a212-cac6a56e74ab'
       model: 'claude-sonnet-4-6'
       trigger: 'regenerate'
       turn_message_uuids: {
@@ -328,10 +328,10 @@ type ChatCompletionRequest =
 组装规则：
 
 - `prompt` 来自 `sendMessage(...).prompt`。
-- `sendMessage` 时，`parent_message_uuid` 默认取当前分支最后一条消息的 `uuid`。
+- `sendMessage` 时，`parent_uuid` 默认取当前分支最后一条消息的 `uuid`。
 - `sendMessage` 也可显式指定 `parentMessageUuid`，用于在某个旧父节点下提交新的 user sibling。
 - `editUserMessage` 内部就是利用这一点，把新的 user 版本挂到被编辑 user 的父节点下。
-- `regenerate` / `regenerateUserMessage` 时，`parent_message_uuid` 取目标 user message 的 `uuid`。
+- `regenerate` / `regenerateUserMessage` 时，`parent_uuid` 取目标 user message 的 `uuid`。
 - 如果当前没有任何消息，则使用固定根节点 `"00000000-0000-4000-8000-000000000000"`。
 - `model` 来自首页输入区当前选择的模型；重新生成时直接复用目标 message 自身记录的 `model`。
 - `trigger` 只支持 `"submit"` 和 `"regenerate"`。
@@ -340,7 +340,7 @@ type ChatCompletionRequest =
 - message uuid 使用 `uuid` 库的 UUID v7。
 - `files` 默认空数组，且只传文件 id。
 - 当前 mock 服务端会回显请求体中的 `assistant_message_uuid`，但前端流消费仍以 `message_start.message.uuid` 为准。
-- 当前 mock 在 `trigger: "regenerate"` 且 `prompt === ""` 时，会输出一个带 `parent_message_uuid` 的兜底文案，方便观察行为。
+- 当前 mock 在 `trigger: "regenerate"` 且 `prompt === ""` 时，会输出一个带 `parent_uuid` 的兜底文案，方便观察行为。
 - 当前 mock 会主动插入可见延迟，方便在首页观察 `tool_use` 标题流光、标题切换和展开内容变化。
 
 ## 4. files
@@ -650,7 +650,7 @@ type ConversationNode = {
 
 - 当前 mock 接口会返回确定性、较长的多段文本。
 - 响应会回显用户输入的 `prompt`。
-- 如果是 `regenerate` 且 `prompt` 为空，会回显 `parent_message_uuid`，便于验证“从既有 user 消息重试”的语义。
+- 如果是 `regenerate` 且 `prompt` 为空，会回显 `parent_uuid`，便于验证“从既有 user 消息重试”的语义。
 - 这样可以更清楚地观察：
   - 流式分块
   - 自动滚动
@@ -705,7 +705,7 @@ type ConversationNode = {
 2. 找到目标 message，并直接读取它自己记录的 `model`。
 3. 如果目标是 assistant，则先回到它的父 user，再继续发 regenerate 请求。
 4. 复用目标 user 消息的 `files`，并把上一步拿到的 `model` 放进请求体。
-5. 组装 `trigger: "regenerate"` 的请求体，`parent_message_uuid` 取目标 user 的 `uuid`。
+5. 组装 `trigger: "regenerate"` 的请求体，`parent_uuid` 取目标 user 的 `uuid`。
 6. 不创建新的 user 消息。
 7. 收到 `message_start` 后，把新 assistant 追加到该 user 节点的 `child_uuids` 中。
 8. 同时更新该父节点的 `active_child_uuid_by_parent_uuid`，并把 `current_leaf_message_uuid` 切到新分支。
@@ -715,7 +715,7 @@ type ConversationNode = {
 1. 用户点击某条 user 消息下方的编辑按钮。
 2. UI 进入编辑态，展示可修改文本的 `textarea`。
 3. 用户确认后调用 `editUserMessage(userMessageUuid, { prompt, model })`，其中 `model` 来自当前输入区选择。
-4. hook 找到原 user 消息，并读取它的 `parent_message_uuid`、`files`。
+4. hook 找到原 user 消息，并读取它的 `parent_uuid`、`files`。
 5. 内部转调 `sendMessage({ prompt, files, parentMessageUuid, model })`。
 6. 创建新的 user sibling，并立即把它设为该父节点的当前激活分支。
 7. 后续 assistant 继续按普通 `submit` 流程生成。

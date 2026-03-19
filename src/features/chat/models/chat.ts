@@ -96,7 +96,7 @@ export interface ChatMessage {
   index: number
   metadata: ChatMessageMetadata
   model: string
-  parent_message_uuid: string
+  parent_uuid: string
   role: ChatRole
   stop_reason: ChatStopReason
   updated_at: string
@@ -147,7 +147,7 @@ export interface RegenerateTurnMessageUuids {
 export interface SubmitChatCompletionRequest {
   files: string[]
   model: string
-  parent_message_uuid: string
+  parent_uuid: string
   prompt: string
   trigger: 'submit'
   turn_message_uuids: SubmitTurnMessageUuids
@@ -156,7 +156,7 @@ export interface SubmitChatCompletionRequest {
 export interface RegenerateChatCompletionRequest {
   files: string[]
   model: string
-  parent_message_uuid: string
+  parent_uuid: string
   prompt: string
   trigger: 'regenerate'
   turn_message_uuids: RegenerateTurnMessageUuids
@@ -169,6 +169,7 @@ export type ChatCompletionRequest =
 export interface ChatCompletionMessageStartEvent {
   message: {
     content: []
+    created_at: string
     id: string
     model: string
     parent_uuid: string
@@ -176,6 +177,7 @@ export interface ChatCompletionMessageStartEvent {
     stop_reason: null
     stop_sequence: string | null
     type: 'message'
+    updated_at: string
     uuid: string
   }
   type: 'message_start'
@@ -253,20 +255,18 @@ export interface ChatCompletionContentBlockDeltaEvent {
 }
 
 export interface ChatCompletionContentBlockStopEvent {
+  content_block: {
+    stop_timestamp: string
+  }
   index: number
-  stop_timestamp: string
   type: 'content_block_stop'
 }
 
-export interface ChatCompletionMessageDeltaEvent {
-  delta: {
+export interface ChatCompletionMessageStopEvent {
+  message: {
     stop_reason: Exclude<ChatStopReason, 'user_canceled' | null>
     stop_sequence: string | null
   }
-  type: 'message_delta'
-}
-
-export interface ChatCompletionMessageStopEvent {
   type: 'message_stop'
 }
 
@@ -286,6 +286,5 @@ export type ChatCompletionSseEvent =
   | ChatCompletionContentBlockStopEvent
   | ChatCompletionMessageLimitEvent
   | ChatCompletionMessageSnapshotEvent
-  | ChatCompletionMessageDeltaEvent
   | ChatCompletionMessageStartEvent
   | ChatCompletionMessageStopEvent

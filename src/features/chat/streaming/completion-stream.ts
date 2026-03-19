@@ -1,5 +1,4 @@
 import { createSseParser } from "./sse-parser";
-import { getISOTimestamp } from "../utils/time";
 import {
   createAssistantMessage,
   createContentBlock,
@@ -10,10 +9,12 @@ import type {
   ChatCompletionContentBlockDeltaEvent,
   ChatCompletionContentBlockStartEvent,
   ChatCompletionContentBlockStopEvent,
-  ChatCompletionMessageDeltaEvent,
   ChatCompletionMessageLimitEvent,
   ChatCompletionMessageSnapshotEvent,
   ChatCompletionMessageStartEvent,
+  ChatCompletionMessageStopEvent,
+  ChatCompletionSseEvent,
+  ChatCompletionTitleEvent,
 } from "../models/events";
 import type { ConversationAction } from "../store/conversation-reducer";
 
@@ -96,15 +97,20 @@ export async function processChatCompletionStream({
     return assistantMessageUuid;
   };
 
-  const parser = createSseParser(({ data, event }) => {
-    switch (event) {
+  const parser = createSseParser(({ data }) => {
+    const parsed = JSON.parse(data) as ChatCompletionSseEvent;
+
+    switch (parsed.type) {
       case "message_start": {
-        const payload = JSON.parse(data) as ChatCompletionMessageStartEvent;
+        const payload = parsed as ChatCompletionMessageStartEvent;
+
+        // 记录 assistantMessageUuid，供后续事件使用
+        assistantMessageUuid = payload.message.uuid;
 
         // 更新 status
         onAssistantMessageStarted?.();
 
-        // 添加 assistant message，为什么要在这里创建好 message 而不是在 reducer 中创建？
+        // 添加 assistant message
         dispatch({
           message: createAssistantMessage(payload),
           type: "message-appended",
@@ -113,14 +119,16 @@ export async function processChatCompletionStream({
       }
       case "message_snapshot": {
         // 在 resume 时该事件会返回被中断的响应消息
-        const payload = JSON.parse(data) as ChatCompletionMessageSnapshotEvent;
+        const payload = parsed as ChatCompletionMessageSnapshotEvent;
+
+        // 记录 assistantMessageUuid，供后续事件使用
+        assistantMessageUuid = payload.message.uuid;
 
         onAssistantMessageStarted?.();
 
         dispatch({
           message: payload.message,
           type: "message-snapshot-received",
-          updatedAt: getISOTimestamp(),
         });
 
         // Reconstruct active content blocks from snapshot to support subsequent deltas
@@ -146,11 +154,9 @@ export async function processChatCompletionStream({
       }
 
       case "content_block_start": {
-        const payload = JSON.parse(
-          data,
-        ) as ChatCompletionContentBlockStartEvent;
+        const payload = parsed as ChatCompletionContentBlockStartEvent;
 
-        const messageUuid = getAssistantMessageUuidOrThrow(event);
+        const messageUuid = getAssistantMessageUuidOrThrow(parsed.type);
 
         switch (payload.content_block.type) {
           case "text":
@@ -198,11 +204,8 @@ export async function processChatCompletionStream({
       }
 
       case "content_block_delta": {
-        const payload = JSON.parse(
-          data,
-        ) as ChatCompletionContentBlockDeltaEvent;
-        const messageUuid = getAssistantMessageUuidOrThrow(event);
-        const updatedAt = getISOTimestamp();
+        const payload = parsed as ChatCompletionContentBlockDeltaEvent;
+        const messageUuid = getAssistantMessageUuidOrThrow(parsed.type);
         const activeBlock = activeContentBlocks.get(payload.index);
 
         if (!activeBlock) {
@@ -218,7 +221,6 @@ export async function processChatCompletionStream({
                 messageUuid,
                 text: payload.delta.text,
                 type: "text-block-delta-received",
-                updatedAt,
               });
               break;
             }
@@ -250,7 +252,6 @@ export async function processChatCompletionStream({
                 index: payload.index,
                 messageUuid,
                 type: "text-block-citation-added",
-                updatedAt,
               });
             }
             break;
@@ -268,7 +269,6 @@ export async function processChatCompletionStream({
                   input: parsedInput,
                   messageUuid,
                   type: "tool-use-input-updated",
-                  updatedAt,
                 });
               }
             }
@@ -280,7 +280,6 @@ export async function processChatCompletionStream({
                 message: payload.delta.message,
                 messageUuid,
                 type: "tool-use-updated",
-                updatedAt,
               });
             }
             break;
@@ -299,7 +298,6 @@ export async function processChatCompletionStream({
                   messageUuid,
                   toolUseId: activeBlock.toolUseId,
                   type: "tool-result-updated",
-                  updatedAt,
                 });
               }
             }
@@ -312,7 +310,6 @@ export async function processChatCompletionStream({
                 messageUuid,
                 toolUseId: activeBlock.toolUseId,
                 type: "tool-result-updated",
-                updatedAt,
               });
             }
             break;
@@ -321,13 +318,13 @@ export async function processChatCompletionStream({
       }
 
       case "content_block_stop": {
-        const payload = JSON.parse(data) as ChatCompletionContentBlockStopEvent;
+        const payload = parsed as ChatCompletionContentBlockStopEvent;
         const activeBlock = activeContentBlocks.get(payload.index);
 
         if (activeBlock?.type === "tool_result") {
           dispatch({
-            messageUuid: getAssistantMessageUuidOrThrow(event),
-            stopTimestamp: payload.stop_timestamp,
+            contentBlock: payload.content_block,
+            messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
             toolUseId: activeBlock.toolUseId,
             type: "tool-result-stopped",
           });
@@ -336,47 +333,42 @@ export async function processChatCompletionStream({
         }
 
         dispatch({
+          contentBlock: payload.content_block,
           index: payload.index,
-          messageUuid: getAssistantMessageUuidOrThrow(event),
-          stopTimestamp: payload.stop_timestamp,
+          messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
           type: "content-block-stopped",
         });
         activeContentBlocks.delete(payload.index);
         break;
       }
 
-      case "message_delta": {
-        const payload = JSON.parse(data) as ChatCompletionMessageDeltaEvent;
-
-        dispatch({
-          messageUuid: getAssistantMessageUuidOrThrow(event),
-          stopReason: payload.delta.stop_reason,
-          type: "message-stop-reason-updated",
-          updatedAt: getISOTimestamp(),
-        });
-        break;
-      }
-
       case "message_limit": {
-        const payload = JSON.parse(data) as ChatCompletionMessageLimitEvent;
+        const payload = parsed as ChatCompletionMessageLimitEvent;
 
         dispatch({
-          messageUuid: getAssistantMessageUuidOrThrow(event),
+          messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
           metadata: {
             message_limit: payload.message_limit,
           },
           type: "message-metadata-updated",
-          updatedAt: getISOTimestamp(),
         });
         break;
       }
 
-      case "message_stop":
+      case "message_stop": {
+        const payload = parsed as ChatCompletionMessageStopEvent;
+
+        dispatch({
+          message: payload.message,
+          messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
+          type: "message-stopped",
+        });
         didReceiveMessageStop = true;
         break;
+      }
 
       case "title": {
-        const payload = JSON.parse(data) as { title: string };
+        const payload = parsed as ChatCompletionTitleEvent;
         onTitleGenerated?.(payload.title);
         break;
       }

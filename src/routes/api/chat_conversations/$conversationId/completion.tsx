@@ -25,10 +25,11 @@ export const Route = createFileRoute(
     handlers: {
       POST: async ({ params, request }) => {
         const body = (await request.json()) as ChatCompletionRequest
+        let assistantTimestamp = getISOTimestamp()
         
         // Generate message IDs
         const assistantMessageUuid = body.turn_message_uuids.assistant_message_uuid || generateTimeOrderedUuid()
-        let assistantParentUuid = body.parent_message_uuid
+        let assistantParentUuid = body.parent_uuid
         const toolUseId = generateTimeOrderedUuid()
 
         // Initialize the assistant message in conversation
@@ -37,25 +38,26 @@ export const Route = createFileRoute(
           
           if (body.trigger === 'submit') {
             const userMessageUuid = body.turn_message_uuids.user_message_uuid
-            const parentUuid = body.parent_message_uuid
+            const parentUuid = body.parent_uuid
+            const userTimestamp = getISOTimestamp()
             
             // Create user message first
             userMessage = {
               content: [{
                 citations: [],
-                start_timestamp: getISOTimestamp(),
-                stop_timestamp: getISOTimestamp(),
+                start_timestamp: userTimestamp,
+                stop_timestamp: userTimestamp,
                 text: body.prompt,
                 type: 'text'
               }],
-              created_at: getISOTimestamp(),
+              created_at: userTimestamp,
               files: body.files,
               metadata: {},
               model: body.model,
-              parent_message_uuid: parentUuid,
+              parent_uuid: parentUuid,
               role: 'user',
               stop_reason: null,
-              updated_at: getISOTimestamp(),
+              updated_at: userTimestamp,
               uuid: userMessageUuid,
               index: 0,
             }
@@ -81,7 +83,7 @@ export const Route = createFileRoute(
             assistantParentUuid = userMessageUuid
           } else {
             // regenerate
-            assistantParentUuid = body.parent_message_uuid
+            assistantParentUuid = body.parent_uuid
             userMessage = conversation.mapping[assistantParentUuid]?.message
             if (!userMessage) {
               throw new Error('Parent message not found')
@@ -89,16 +91,17 @@ export const Route = createFileRoute(
           }
 
           // Create assistant message
+          assistantTimestamp = getISOTimestamp()
           const assistantMessage: ChatMessage = {
             content: [],
-            created_at: getISOTimestamp(),
+            created_at: assistantTimestamp,
             files: [],
             metadata: {},
             model: body.model,
-            parent_message_uuid: assistantParentUuid,
+            parent_uuid: assistantParentUuid,
             role: 'assistant',
             stop_reason: null,
-            updated_at: getISOTimestamp(),
+            updated_at: assistantTimestamp,
             uuid: assistantMessageUuid,
             index: 0, // Will be updated below
           }
@@ -126,7 +129,7 @@ export const Route = createFileRoute(
           // Update conversation summary
           updateConversationSummaryFields(conversation, {
             currentLeafMessageUuid: assistantMessageUuid,
-            updatedAt: getISOTimestamp()
+            updatedAt: assistantTimestamp
           })
         })
 
@@ -134,6 +137,7 @@ export const Route = createFileRoute(
         runBackgroundGeneration({
           conversationId: params.conversationId,
           assistantMessageUuid,
+          assistantTimestamp,
           body,
           assistantParentUuid,
           toolUseId,

@@ -94,7 +94,7 @@ export interface ChatMessage {
   index: number
   metadata: ChatMessageMetadata
   model: string
-  parent_message_uuid: string
+  parent_uuid: string
   role: ChatRole
   stop_reason: ChatStopReason
   updated_at: string

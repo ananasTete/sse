@@ -10,9 +10,26 @@ import type {
 import type { ChatConversationDetail } from "../models/conversation";
 import type { ConversationMapping } from "../models/conversation-node";
 import { ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
-import type { ConversationRuntimeHelpers } from "./conversation-runtime";
 
-export type ConversationDomainState = ChatConversationDetail;
+/**
+ * 领域状态：描述"会话业务实体是什么样的"。
+ *
+ * 在 ChatConversationDetail（后端 DTO）的基础上，额外携带两个前端领域层维护的字段：
+ *
+ * - active_child_uuid_by_parent_uuid：消息树的"活跃路径索引"。
+ *   记录每个父节点当前选中的子分支，是 mapping + current_leaf_message_uuid 的派生结构。
+ *   虽然后端不持久化它，但它描述的是"对话树现在是什么样的"，属于领域概念。
+ *
+ * - next_message_index：下一条本地追加消息的顺序号，等价于 MAX(message.index) + 1。
+ *   同样可以从 mapping 派生，是消息实体的计数器，属于领域数据。
+ *
+ * 这两个字段曾被误放入 Runtime。Runtime 只应描述程序行为（正在请求、出错了），
+ * 不应描述业务实体状态。
+ */
+export interface ConversationDomainState extends ChatConversationDetail {
+  active_child_uuid_by_parent_uuid: Record<string, string>;
+  next_message_index: number;
+}
 
 export type ConversationAction =
   | {
@@ -22,7 +39,6 @@ export type ConversationAction =
   | {
       message: NewChatMessage;
       type: "message-snapshot-received";
-      updatedAt: string;
     }
   | {
       index: number;
@@ -35,21 +51,18 @@ export type ConversationAction =
       messageUuid: string;
       text: string;
       type: "text-block-delta-received";
-      updatedAt: string;
     }
   | {
       citation: ChatCitation;
       index: number;
       messageUuid: string;
       type: "text-block-citation-added";
-      updatedAt: string;
     }
   | {
       index: number;
       input: Record<string, unknown> | null;
       messageUuid: string;
       type: "tool-use-input-updated";
-      updatedAt: string;
     }
   | {
       displayContent: unknown | null;
@@ -57,7 +70,6 @@ export type ConversationAction =
       message: string | null;
       messageUuid: string;
       type: "tool-use-updated";
-      updatedAt: string;
     }
   | {
       messageUuid: string;
@@ -71,17 +83,16 @@ export type ConversationAction =
       messageUuid: string;
       toolUseId: string;
       type: "tool-result-updated";
-      updatedAt: string;
     }
   | {
+      contentBlock: { stop_timestamp: string };
       index: number;
       messageUuid: string;
-      stopTimestamp: string;
       type: "content-block-stopped";
     }
   | {
+      contentBlock: { stop_timestamp: string };
       messageUuid: string;
-      stopTimestamp: string;
       toolUseId: string;
       type: "tool-result-stopped";
     }
@@ -89,13 +100,11 @@ export type ConversationAction =
       messageUuid: string;
       metadata: Partial<ChatMessage["metadata"]>;
       type: "message-metadata-updated";
-      updatedAt: string;
     }
   | {
+      message: { stop_reason: ChatStopReason; stop_sequence: string | null };
       messageUuid: string;
-      stopReason: ChatStopReason;
-      type: "message-stop-reason-updated";
-      updatedAt: string;
+      type: "message-stopped";
     }
   | {
       messageUuid: string;
@@ -117,6 +126,7 @@ export function createEmptyConversationDomain(
   timestamp: string,
 ): ConversationDomainState {
   return {
+    active_child_uuid_by_parent_uuid: {},
     created_at: timestamp,
     current_leaf_message_uuid: null,
     mapping: {
@@ -127,6 +137,7 @@ export function createEmptyConversationDomain(
         uuid: ROOT_PARENT_MESSAGE_UUID,
       },
     },
+    next_message_index: 0,
     title: "",
     updated_at: timestamp,
     uuid: conversationId,
@@ -145,20 +156,16 @@ function setConversationUpdatedAt(
 }
 
 function getPreferredChildUuid(
-  state: {
-    domain: ConversationDomainState;
-    runtime: ConversationRuntimeHelpers;
-  },
+  domain: ConversationDomainState,
   parentUuid: string,
 ) {
-  const parentNode = state.domain.mapping[parentUuid];
+  const parentNode = domain.mapping[parentUuid];
 
   if (!parentNode || parentNode.child_uuids.length === 0) {
     return null;
   }
 
-  const activeChildUuid =
-    state.runtime.active_child_uuid_by_parent_uuid[parentUuid];
+  const activeChildUuid = domain.active_child_uuid_by_parent_uuid[parentUuid];
 
   if (activeChildUuid && parentNode.child_uuids.includes(activeChildUuid)) {
     return activeChildUuid;
@@ -168,16 +175,13 @@ function getPreferredChildUuid(
 }
 
 function resolveLeafMessageUuid(
-  state: {
-    domain: ConversationDomainState;
-    runtime: ConversationRuntimeHelpers;
-  },
+  domain: ConversationDomainState,
   startMessageUuid: string,
 ) {
   let currentMessageUuid = startMessageUuid;
 
   while (true) {
-    const nextChildUuid = getPreferredChildUuid(state, currentMessageUuid);
+    const nextChildUuid = getPreferredChildUuid(domain, currentMessageUuid);
 
     if (!nextChildUuid) {
       return currentMessageUuid;
@@ -188,45 +192,32 @@ function resolveLeafMessageUuid(
 }
 
 function appendMessageNode(
-  draft: {
-    domain: ConversationDomainState;
-    runtime: ConversationRuntimeHelpers;
-  },
+  domain: ConversationDomainState,
   message: NewChatMessage,
 ) {
   const indexedMessage = {
     ...message,
-    index: draft.runtime.next_message_index,
+    index: domain.next_message_index,
   } satisfies ChatMessage;
 
-  // 更新 Leaf
-  draft.domain.mapping[indexedMessage.uuid] = {
+  domain.mapping[indexedMessage.uuid] = {
     child_uuids: [],
     message: indexedMessage,
-    parent_uuid: indexedMessage.parent_message_uuid,
+    parent_uuid: indexedMessage.parent_uuid,
     uuid: indexedMessage.uuid,
   };
 
-  const parentNode = draft.domain.mapping[indexedMessage.parent_message_uuid];
+  const parentNode = domain.mapping[indexedMessage.parent_uuid];
 
-  // 更新 parent 的 child_uuids
   if (parentNode && !parentNode.child_uuids.includes(indexedMessage.uuid)) {
     parentNode.child_uuids.push(indexedMessage.uuid);
   }
 
-  // 更新 active child 映射
-  draft.runtime.active_child_uuid_by_parent_uuid[
-    indexedMessage.parent_message_uuid
-  ] = indexedMessage.uuid;
+  domain.active_child_uuid_by_parent_uuid[indexedMessage.parent_uuid] =
+    indexedMessage.uuid;
 
-  // 更新 current leaf message uuid
-  draft.domain.current_leaf_message_uuid = indexedMessage.uuid;
-
-  // 更新 next message index
-  draft.runtime.next_message_index += 1;
-
-  // 更新 conversation updatedAt
-  setConversationUpdatedAt(draft.domain, indexedMessage.updated_at);
+  domain.current_leaf_message_uuid = indexedMessage.uuid;
+  domain.next_message_index += 1;
 }
 
 function findToolUseBlock(
@@ -239,44 +230,51 @@ function findToolUseBlock(
   );
 }
 
+/**
+ * Domain 状态机的纯函数入口。
+ *
+ * 签名：(domain, action) => domain
+ *
+ * - 只接收 domain，只返回 domain
+ * - 不感知 runtime（status / activeRequest / errorMessage）
+ * - 所有 domain 内字段（包括 active_child_uuid_by_parent_uuid、next_message_index）
+ *   均在此函数内一致性更新
+ */
 export function reduceConversationDomain(
   domain: ConversationDomainState,
-  runtime: ConversationRuntimeHelpers,
   action: ConversationAction,
-) {
-  return produce({ domain, runtime }, (draft) => {
+): ConversationDomainState {
+  return produce(domain, (draft) => {
     switch (action.type) {
       case "message-appended":
         appendMessageNode(draft, action.message);
         return;
 
       case "message-snapshot-received": {
-        const existingNode = findNodeByUuid(
-          draft.domain.mapping,
-          action.message.uuid,
-        );
+        const existingNode = findNodeByUuid(draft.mapping, action.message.uuid);
 
         if (existingNode) {
           const currentMessage = existingNode.message;
 
           if (currentMessage) {
             currentMessage.content = action.message.content;
+            currentMessage.created_at = action.message.created_at;
             currentMessage.metadata = action.message.metadata;
             currentMessage.model = action.message.model;
             currentMessage.stop_reason = action.message.stop_reason;
-            currentMessage.updated_at = action.updatedAt;
+            currentMessage.updated_at = action.message.updated_at;
           }
         } else {
           appendMessageNode(draft, action.message);
         }
 
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
+        setConversationUpdatedAt(draft, action.message.updated_at);
         return;
       }
 
       case "content-block-started": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
 
@@ -285,14 +283,12 @@ export function reduceConversationDomain(
         }
 
         message.content[action.index] = action.value;
-        message.updated_at = action.value.start_timestamp;
-        setConversationUpdatedAt(draft.domain, action.value.start_timestamp);
         return;
       }
 
       case "text-block-delta-received": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
         const currentBlock = message?.content[action.index];
@@ -302,14 +298,12 @@ export function reduceConversationDomain(
         }
 
         currentBlock.text += action.text;
-        message.updated_at = action.updatedAt;
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
         return;
       }
 
       case "text-block-citation-added": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
         const currentBlock = message?.content[action.index];
@@ -319,14 +313,12 @@ export function reduceConversationDomain(
         }
 
         currentBlock.citations.push(action.citation);
-        message.updated_at = action.updatedAt;
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
         return;
       }
 
       case "tool-use-input-updated": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
         const currentBlock = message?.content[action.index];
@@ -336,14 +328,12 @@ export function reduceConversationDomain(
         }
 
         currentBlock.input = action.input;
-        message.updated_at = action.updatedAt;
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
         return;
       }
 
       case "tool-use-updated": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
         const currentBlock = message?.content[action.index];
@@ -354,14 +344,12 @@ export function reduceConversationDomain(
 
         currentBlock.message = action.message;
         currentBlock.display_content = action.displayContent;
-        message.updated_at = action.updatedAt;
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
         return;
       }
 
       case "tool-result-started": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
         const toolUseBlock = findToolUseBlock(
@@ -375,14 +363,12 @@ export function reduceConversationDomain(
 
         toolUseBlock.tool_result = action.value;
         toolUseBlock.stop_timestamp = null;
-        message.updated_at = action.value.start_timestamp;
-        setConversationUpdatedAt(draft.domain, action.value.start_timestamp);
         return;
       }
 
       case "tool-result-updated": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
         const toolUseBlock = findToolUseBlock(message, action.toolUseId);
@@ -405,14 +391,12 @@ export function reduceConversationDomain(
         }
 
         toolUseBlock.stop_timestamp = null;
-        message.updated_at = action.updatedAt;
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
         return;
       }
 
       case "content-block-stopped": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
         const currentBlock = message?.content[action.index];
@@ -421,15 +405,13 @@ export function reduceConversationDomain(
           return;
         }
 
-        currentBlock.stop_timestamp = action.stopTimestamp;
-        message.updated_at = action.stopTimestamp;
-        setConversationUpdatedAt(draft.domain, action.stopTimestamp);
+        Object.assign(currentBlock, action.contentBlock);
         return;
       }
 
       case "tool-result-stopped": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
         const toolUseBlock = findToolUseBlock(message, action.toolUseId);
@@ -439,16 +421,14 @@ export function reduceConversationDomain(
           return;
         }
 
-        toolResult.stop_timestamp = action.stopTimestamp;
-        toolUseBlock.stop_timestamp = action.stopTimestamp;
-        message.updated_at = action.stopTimestamp;
-        setConversationUpdatedAt(draft.domain, action.stopTimestamp);
+        Object.assign(toolResult, action.contentBlock);
+        Object.assign(toolUseBlock, action.contentBlock);
         return;
       }
 
-      case "message-stop-reason-updated": {
+      case "message-stopped": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
 
@@ -456,15 +436,13 @@ export function reduceConversationDomain(
           return;
         }
 
-        message.stop_reason = action.stopReason;
-        message.updated_at = action.updatedAt;
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
+        Object.assign(message, action.message);
         return;
       }
 
       case "message-metadata-updated": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
 
@@ -476,19 +454,17 @@ export function reduceConversationDomain(
           ...message.metadata,
           ...action.metadata,
         };
-        message.updated_at = action.updatedAt;
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
         return;
       }
 
       case "message-stream-stopped": {
         const message = findNodeByUuid(
-          draft.domain.mapping,
+          draft.mapping,
           action.messageUuid,
         )?.message;
 
         if (!message) {
-          setConversationUpdatedAt(draft.domain, action.stoppedAt);
+          setConversationUpdatedAt(draft, action.stoppedAt);
           return;
         }
 
@@ -501,25 +477,19 @@ export function reduceConversationDomain(
         }
 
         message.stop_reason = "user_canceled";
-        message.updated_at = action.stoppedAt;
-        setConversationUpdatedAt(draft.domain, action.stoppedAt);
         return;
       }
 
       case "branch-selected": {
-        const selectedNode = findNodeByUuid(
-          draft.domain.mapping,
-          action.messageUuid,
-        );
+        const selectedNode = findNodeByUuid(draft.mapping, action.messageUuid);
         const parentUuid = selectedNode?.parent_uuid;
 
         if (!selectedNode || !parentUuid) {
           return;
         }
 
-        draft.runtime.active_child_uuid_by_parent_uuid[parentUuid] =
-          action.messageUuid;
-        draft.domain.current_leaf_message_uuid = resolveLeafMessageUuid(
+        draft.active_child_uuid_by_parent_uuid[parentUuid] = action.messageUuid;
+        draft.current_leaf_message_uuid = resolveLeafMessageUuid(
           draft,
           action.messageUuid,
         );
@@ -527,8 +497,8 @@ export function reduceConversationDomain(
       }
 
       case "title-updated":
-        draft.domain.title = action.title;
-        setConversationUpdatedAt(draft.domain, action.updatedAt);
+        draft.title = action.title;
+        setConversationUpdatedAt(draft, action.updatedAt);
         return;
 
       default:

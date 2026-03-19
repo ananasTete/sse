@@ -29,7 +29,7 @@ export interface RegenerateTurnMessageUuids {
 export interface SubmitChatCompletionRequest {
   files: string[]
   model: string
-  parent_message_uuid: string
+  parent_uuid: string
   prompt: string
   trigger: 'submit'
   turn_message_uuids: SubmitTurnMessageUuids
@@ -38,7 +38,7 @@ export interface SubmitChatCompletionRequest {
 export interface RegenerateChatCompletionRequest {
   files: string[]
   model: string
-  parent_message_uuid: string
+  parent_uuid: string
   prompt: string
   trigger: 'regenerate'
   turn_message_uuids: RegenerateTurnMessageUuids

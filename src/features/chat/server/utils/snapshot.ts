@@ -2,10 +2,10 @@ import type {
   ChatCompletionContentBlockDeltaEvent,
   ChatCompletionContentBlockStartEvent,
   ChatCompletionContentBlockStopEvent,
-  ChatCompletionMessageDeltaEvent,
   ChatCompletionMessageLimitEvent,
   ChatCompletionMessageStartEvent,
   ChatCompletionMessageSnapshotEvent,
+  ChatCompletionMessageStopEvent,
   NewChatMessage,
   ChatContent,
   ChatToolUseContent,
@@ -14,21 +14,19 @@ import type {
 
 function parseSseEvent(eventString: string): { event: string; data: any } | null {
   const lines = eventString.split('\n')
-  let event = ''
   let data = ''
 
   for (const line of lines) {
-    if (line.startsWith('event: ')) {
-      event = line.substring(7).trim()
-    } else if (line.startsWith('data: ')) {
+    if (line.startsWith('data: ')) {
       data = line.substring(6).trim()
     }
   }
 
-  if (!event || !data) return null
+  if (!data) return null
 
   try {
-    return { event, data: JSON.parse(data) }
+    const parsed = JSON.parse(data)
+    return { event: parsed.type ?? 'message', data: parsed }
   } catch {
     return null
   }
@@ -53,14 +51,14 @@ export function reconstructMessageSnapshot(events: string[]): ChatCompletionMess
         const payload = data as ChatCompletionMessageStartEvent
         message = {
           content: [],
-          created_at: new Date().toISOString(),
+          created_at: payload.message.created_at,
           files: [],
           metadata: {},
           model: payload.message.model,
-          parent_message_uuid: payload.message.parent_uuid,
+          parent_uuid: payload.message.parent_uuid,
           role: payload.message.role,
           stop_reason: null,
-          updated_at: new Date().toISOString(),
+          updated_at: payload.message.updated_at,
           uuid: payload.message.uuid,
         }
         break
@@ -133,15 +131,15 @@ export function reconstructMessageSnapshot(events: string[]): ChatCompletionMess
         const payload = data as ChatCompletionContentBlockStopEvent
         const block = streamBlocks[payload.index]
         if (block) {
-          block.stop_timestamp = payload.stop_timestamp
+          block.stop_timestamp = payload.content_block.stop_timestamp
         }
         break
       }
 
-      case 'message_delta': {
+      case 'message_stop': {
         if (message) {
-          const payload = data as ChatCompletionMessageDeltaEvent
-          message.stop_reason = payload.delta.stop_reason
+          const payload = data as ChatCompletionMessageStopEvent
+          message.stop_reason = payload.message.stop_reason
         }
         break
       }
@@ -188,11 +186,9 @@ export function reconstructMessageSnapshot(events: string[]): ChatCompletionMess
   }
 
   message.content = finalContent
-  message.updated_at = new Date().toISOString()
 
   return {
     type: 'message_snapshot',
     message
   }
 }
-
