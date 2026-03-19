@@ -363,12 +363,14 @@ type ChatCompletionRequest =
 当前 mock 先覆盖已确认的事件集：
 
 - `message_start`
-- `content_block_start`
-- `content_block_delta`
-- `content_block_stop`
-- `message_delta`
+- `message_snapshot`
+- `message_update`
 - `message_limit`
 - `message_stop`
+- `content_block_start`
+- `content_block_delta`
+- `content_block_update`
+- `content_block_stop`
 
 当前 mock 暂不实现：
 
@@ -386,23 +388,66 @@ type ChatCompletionRequest =
 - 前端解析后会把 `tool_result` 挂到对应 `tool_use.tool_result` 上。
 - `text` block 支持 `citations` 字段，并支持在流式阶段通过 `citation_start_delta` / `citation_end_delta` 标记区间。
 - 协议里工具块统一使用 `display_content`，不再使用 `content`。
-- `tool_use` 期间可通过 `tool_use_block_update_delta` 覆盖当前标题和展开内容。
+- 当前项目仍会通过 `content_block_delta(type = "input_json_delta")` 流式输出 `tool_use.input`，前端用 `partial-json` 实时解析。
+- 同时保留 `content_block_update.update.input` 的完整对象快照，供未来切换到“只依赖 update”时复用。
+- `content_block_update.update` 采用浅合并；字段缺席表示不变，显式 `null` 表示清空。
 - `tool_result` 出现后，UI 标题严格使用 `tool_result.message ?? firstInputValue`，不再回退到 `tool_use.message`。
+- SSE 文本里同时输出 `event:` 和 `data.type`；业务逻辑仍以 `data.type` 为准。
 
-示例：
+完整案例 A：`text + citation`
 
 ```txt
 event: message_start
-data: {"type":"message_start","message":{"id":"chatcompl_017LfCWBpwHhqdB7cmR2iwqp","type":"message","role":"assistant","model":"claude-sonnet-4-6","parent_uuid":"019cd069-55c3-7190-a212-cac6a56e74ab","uuid":"019cd069-55c3-7904-aac3-569c7605069b","content":[],"stop_reason":null,"stop_sequence":null,"trace_id":"fb6c7644d9319a2435e99f2c3a8f867b","request_id":"req_011CYriJ8e9RxjUvKjTsQpck"}}
+data: {"type":"message_start","message":{"id":"chatcompl_textcase","type":"message","role":"assistant","model":"claude-sonnet-4-6","parent_uuid":"user-msg-1","uuid":"assistant-msg-1","content":[],"created_at":"2026-03-11T11:49:38.900000Z","updated_at":"2026-03-11T11:49:38.900000Z","stop_reason":null,"stop_sequence":null}}
 
 event: content_block_start
-data: {"type":"content_block_start","index":0,"content_block":{"start_timestamp":"2026-03-11T11:49:38.941722Z","stop_timestamp":null,"flags":null,"type":"tool_use","id":"toolu_01WJUzuUvtXAnr5qH5F6C7xC","name":"web_search","input":{},"message":"Searching the web","icon_name":"globe","display_content":null}}
+data: {"type":"content_block_start","index":0,"content_block":{"start_timestamp":"2026-03-11T11:49:39.293133Z","stop_timestamp":null,"flags":null,"type":"text","text":"","citations":[]}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"OpenAI Codex pricing 2026\"}"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Mock response to: **OpenAI Codex pricing 2026**\n\n"}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"tool_use_block_update_delta","message":"Fetching: https://developers.openai.com/codex/pricing/","display_content":{"preview_url":"https://developers.openai.com/codex/pricing/"}}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"citation_start_delta","citation":{"uuid":"citation-apidog-pricing","title":"How Affordable Is GPT-5 Codex Pricing for Developers in 2026","url":"https://apidog.com/blog/codex-pricing/","metadata":{"type":"webpage_metadata","site_domain":"apidog.com","favicon_url":"https://www.google.com/s2/favicons?sz=64&domain=apidog.com","site_name":"Apidog"},"origin_tool_name":"web_search","sources":[{"uuid":"citation-source-apidog-pricing","title":"How Affordable Is GPT-5 Codex Pricing for Developers in 2026","url":"https://apidog.com/blog/codex-pricing/","icon_url":"https://www.google.com/s2/favicons?sz=64&domain=apidog.com","source":"Apidog"}]}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"每五小时 30–150 个本地任务（含周限额），支持 CLI 和 IDE 集成"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"citation_end_delta","citation_uuid":"citation-apidog-pricing"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"。\n\n- Citation pills should appear inline after the cited span\n- Markdown formatting should remain intact while the text streams in"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0,"stop_timestamp":"2026-03-11T11:49:39.338292Z"}
+
+event: message_update
+data: {"type":"message_update","delta":{"stop_reason":"end_turn","stop_sequence":null}}
+
+event: message_limit
+data: {"type":"message_limit","message_limit":{"type":"within_limit","resetsAt":null,"remaining":null,"perModelLimit":null,"representativeClaim":"five_hour","overageDisabledReason":"overage_not_provisioned","overageInUse":false,"windows":{"5h":{"status":"within_limit","resets_at":1773039600,"utilization":0.01}}}}
+
+event: message_stop
+data: {"type":"message_stop"}
+```
+
+完整案例 B：`tool_use + tool_result`
+
+```txt
+event: message_start
+data: {"type":"message_start","message":{"id":"chatcompl_toolcase","type":"message","role":"assistant","model":"claude-sonnet-4-6","parent_uuid":"user-msg-2","uuid":"assistant-msg-2","content":[],"created_at":"2026-03-11T11:49:38.900000Z","updated_at":"2026-03-11T11:49:38.900000Z","stop_reason":null,"stop_sequence":null}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"start_timestamp":"2026-03-11T11:49:38.941722Z","stop_timestamp":null,"flags":null,"type":"tool_use","id":"toolu_01WJUzuUvtXAnr5qH5F6C7xC","name":"web_search","input":null,"message":"Searching the web","icon_name":"globe","display_content":null}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"OpenAI Cod"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"ex pricing 2026\"}"}}
+
+event: content_block_update
+data: {"type":"content_block_update","index":0,"update":{"input":{"query":"OpenAI Codex pricing 2026"},"message":"Fetching: https://developers.openai.com/codex/pricing/","display_content":{"preview_url":"https://developers.openai.com/codex/pricing/"}}}
 
 event: content_block_stop
 data: {"type":"content_block_stop","index":0,"stop_timestamp":"2026-03-11T11:49:39.048579Z"}
@@ -411,37 +456,16 @@ event: content_block_start
 data: {"type":"content_block_start","index":1,"content_block":{"start_timestamp":"2026-03-11T11:49:39.093133Z","stop_timestamp":null,"flags":null,"type":"tool_result","tool_use_id":"toolu_01WJUzuUvtXAnr5qH5F6C7xC","name":"web_search","message":"Found 3 sources","icon_name":"globe","display_content":null,"is_error":false}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"[{\"type\":\"knowledge\",\"title\":\"Codex Pricing\",\"url\":\"https://developers.openai.com/codex/pricing/\",\"metadata\":{\"type\":\"webpage_metadata\",\"site_domain\":\"openai.com\",\"favicon_url\":\"https://www.google.com/s2/favicons?sz=64&domain=openai.com\",\"site_name\":\"OpenAI\"},\"is_missing\":false}]" }}
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"[{\"type\":\"knowledge\",\"title\":\"Codex Pricing\",\"url\":\"https://developers.openai.com/codex/pricing/\"}]" }}
+
+event: content_block_update
+data: {"type":"content_block_update","index":1,"update":{"message":"Found 3 sources","display_content":[{"type":"knowledge","title":"Codex Pricing","url":"https://developers.openai.com/codex/pricing/"}]}}
 
 event: content_block_stop
 data: {"type":"content_block_stop","index":1,"stop_timestamp":"2026-03-11T11:49:39.193133Z"}
 
-event: content_block_start
-data: {"type":"content_block_start","index":2,"content_block":{"start_timestamp":"2026-03-11T11:49:39.293133Z","stop_timestamp":null,"flags":null,"type":"text","text":"","citations":[]}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"Mock response to: **OpenAI Codex pricing 2026**\n\n"}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":2,"delta":{"type":"citation_start_delta","citation":{"uuid":"citation-apidog-pricing","title":"How Affordable Is GPT-5 Codex Pricing for Developers in 2026","url":"https://apidog.com/blog/codex-pricing/","metadata":{"type":"webpage_metadata","site_domain":"apidog.com","favicon_url":"https://www.google.com/s2/favicons?sz=64&domain=apidog.com","site_name":"Apidog"},"origin_tool_name":"web_search","sources":[{"uuid":"citation-source-apidog-pricing","title":"How Affordable Is GPT-5 Codex Pricing for Developers in 2026","url":"https://apidog.com/blog/codex-pricing/","icon_url":"https://www.google.com/s2/favicons?sz=64&domain=apidog.com","source":"Apidog"}]}}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"每五小时 30–150 个本地任务（含周限额），支持 CLI 和 IDE 集成"}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":2,"delta":{"type":"citation_end_delta","citation_uuid":"citation-apidog-pricing"}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"。\n\n- `web_search` returned 3 knowledge items\n- Citation pills should appear inline after the cited span\n- Markdown formatting should remain intact while the text streams in"}}
-
-event: content_block_stop
-data: {"type":"content_block_stop","index":2,"stop_timestamp":"2026-03-11T11:49:39.338292Z"}
-
-event: message_delta
-data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null}}
-
-event: message_limit
-data: {"type":"message_limit","message_limit":{"type":"within_limit","resetsAt":null,"remaining":null,"perModelLimit":null,"representativeClaim":"five_hour","overageDisabledReason":"overage_not_provisioned","overageInUse":false,"windows":{"5h":{"status":"within_limit","resets_at":1773039600,"utilization":0.01}}}}
+event: message_update
+data: {"type":"message_update","delta":{"stop_reason":"end_turn","stop_sequence":null}}
 
 event: message_stop
 data: {"type":"message_stop"}
@@ -451,22 +475,22 @@ data: {"type":"message_stop"}
 
 - `message_start`：创建 assistant 消息壳，uuid 使用服务端返回的 assistant uuid。
 - `message_start` 中的 `message.model` 会直接写入 assistant 消息的顶层 `model` 字段。
-- `message_start` 同时作为后续 `content_block_*`、`message_delta`、`message_limit` 的关联起点；这些事件本身不携带消息 uuid，所以流消费层会先缓存 `message_start.message.uuid`。
+- `message_start` 同时作为后续 `content_block_*`、`message_update`、`message_limit` 的关联起点；这些事件本身不携带消息 uuid，所以流消费层会先缓存 `message_start.message.uuid`。
 - `content_block_start(type = "text")`：初始化对应 `content[index]` 文本块。
 - `content_block_delta(type = "text_delta")`：追加文本到对应 `content[index].text`。
 - `content_block_delta(type = "citation_start_delta")`：记录“当前 text block 已接收长度”作为 citation 的 `start_index`，并缓存 citation 元数据。
 - `content_block_delta(type = "citation_end_delta")`：用“当前 text block 已接收长度”作为 `end_index`，生成完整 citation 并追加到 `content[index].citations`。
 - `content_block_start(type = "tool_use")`：创建工具调用块。
-- `content_block_delta(type = "input_json_delta")` 且当前块是 `tool_use`：持续解析并更新 `tool_use.input`。
-- `content_block_delta(type = "tool_use_block_update_delta")`：覆盖 `tool_use.message` 和 `tool_use.display_content`。
+- `content_block_delta(type = "input_json_delta")` 且当前块是 `tool_use`：持续用 `partial-json` 解析并更新 `tool_use.input`。
+- `content_block_update(type = "tool_use")`：浅合并 `tool_use.input`、`tool_use.message`、`tool_use.display_content`；当前项目不会依赖它来驱动 input 的实时解析。
 - `content_block_start(type = "tool_result")`：通过 `tool_use_id` 挂到对应 `tool_use.tool_result`。
 - `content_block_delta(type = "input_json_delta")` 且当前块是 `tool_result`：持续解析并更新 `tool_result.display_content`。
-- `content_block_delta(type = "tool_result_block_update_delta")`：覆盖 `tool_result.message`、`tool_result.display_content` 和可选错误态。
+- `content_block_update(type = "tool_result")`：浅合并 `tool_result.message`、`tool_result.display_content` 和可选错误态。
 - `content_block_stop(type = "tool_result")`：同时写入 `tool_result.stop_timestamp` 和外层 `tool_use.stop_timestamp`，把它视作整次工具调用完成时间。
 - 其他 `content_block_stop`：写入该 block 的 `stop_timestamp`。
-- `message_delta`：合并 `stop_reason` 等消息级字段。
+- `message_update`：合并 `stop_reason` 等消息级字段。
 - `message_limit`：合并到当前 assistant 消息的 `metadata.message_limit`。
-- `message_stop`：结束本轮流式生成，`status` 进入 `ready`。
+- `message_stop`：纯结束信号，不携带 `stop_timestamp`，`status` 在此时进入 `ready`。
 
 ### 5.1 如何理解 citation
 
@@ -695,8 +719,8 @@ type ConversationNode = {
 4. 组装 `trigger: "submit"` 的请求体并发起 `POST /api/chat_conversations/{conversationId}/completion`。
 5. `status` 进入 `submitted`。
 6. 收到 `message_start` 后，以 `message_start.message.uuid` 作为本轮 assistant 消息的真实 uuid，并创建 assistant 消息壳，同时把服务端返回的 `message.model` 写入 assistant message。
-7. 收到 `content_block_delta` 后持续追加 assistant 文本；后续流事件都依赖上一步缓存的 assistant uuid。
-8. 收到 `message_limit` 后把数据合并到 assistant `metadata`。
+7. 收到 `content_block_delta` / `content_block_update` 后持续更新 assistant 内容；后续流事件都依赖上一步缓存的 assistant uuid。
+8. 收到 `message_update` 后把 `stop_reason` 等消息级字段合并到 assistant message，收到 `message_limit` 后把限制数据合并到 assistant `metadata`。
 9. 收到 `message_stop` 后 `status` 回到 `ready`。
 
 重新生成流程：

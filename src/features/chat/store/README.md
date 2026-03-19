@@ -212,8 +212,9 @@ SSE 处理在 `streaming/completion-stream.ts` 中完成。
 
 - `message_start` -> `message-appended`
 - `message_snapshot` -> `message-snapshot-received`
-- `content_block_delta` -> 各类 text/tool actions
-- `message_stop` -> `message-stopped`
+- `message_update` -> `message-updated`
+- `content_block_delta` -> 各类 text/tool_use/tool_result actions
+- `content_block_update` -> `tool-use-updated` / `tool-result-updated`
 - `message_limit` -> `message-metadata-updated`
 - `title` -> `title-updated`
 

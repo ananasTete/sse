@@ -2,7 +2,6 @@ import { produce } from "immer";
 import type {
   ChatCitation,
   ChatMessage,
-  ChatStopReason,
   ChatToolResultContent,
   ChatToolUseContent,
   NewChatMessage,
@@ -60,16 +59,11 @@ export type ConversationAction =
     }
   | {
       index: number;
-      input: Record<string, unknown> | null;
-      messageUuid: string;
-      type: "tool-use-input-updated";
-    }
-  | {
-      displayContent: unknown | null;
-      index: number;
-      message: string | null;
       messageUuid: string;
       type: "tool-use-updated";
+      update: Partial<
+        Pick<ChatToolUseContent, "display_content" | "input" | "message">
+      >;
     }
   | {
       messageUuid: string;
@@ -77,22 +71,22 @@ export type ConversationAction =
       value: ChatToolResultContent;
     }
   | {
-      displayContent?: unknown | null;
-      isError?: boolean;
-      message?: string | null;
       messageUuid: string;
       toolUseId: string;
       type: "tool-result-updated";
+      update: Partial<
+        Pick<ChatToolResultContent, "display_content" | "is_error" | "message">
+      >;
     }
   | {
-      contentBlock: { stop_timestamp: string };
       index: number;
       messageUuid: string;
+      stop_timestamp: string;
       type: "content-block-stopped";
     }
   | {
-      contentBlock: { stop_timestamp: string };
       messageUuid: string;
+      stop_timestamp: string;
       toolUseId: string;
       type: "tool-result-stopped";
     }
@@ -102,9 +96,11 @@ export type ConversationAction =
       type: "message-metadata-updated";
     }
   | {
-      message: { stop_reason: ChatStopReason; stop_sequence: string | null };
+      delta: Partial<Pick<ChatMessage, "stop_reason">> & {
+        stop_sequence?: string | null;
+      };
       messageUuid: string;
-      type: "message-stopped";
+      type: "message-updated";
     }
   | {
       messageUuid: string;
@@ -118,7 +114,6 @@ export type ConversationAction =
   | {
       title: string;
       type: "title-updated";
-      updatedAt: string;
     };
 
 export function createEmptyConversationDomain(
@@ -316,21 +311,6 @@ export function reduceConversationDomain(
         return;
       }
 
-      case "tool-use-input-updated": {
-        const message = findNodeByUuid(
-          draft.mapping,
-          action.messageUuid,
-        )?.message;
-        const currentBlock = message?.content[action.index];
-
-        if (!message || !currentBlock || currentBlock.type !== "tool_use") {
-          return;
-        }
-
-        currentBlock.input = action.input;
-        return;
-      }
-
       case "tool-use-updated": {
         const message = findNodeByUuid(
           draft.mapping,
@@ -342,8 +322,17 @@ export function reduceConversationDomain(
           return;
         }
 
-        currentBlock.message = action.message;
-        currentBlock.display_content = action.displayContent;
+        if (Object.hasOwn(action.update, "input")) {
+          currentBlock.input = action.update.input ?? null;
+        }
+
+        if (Object.hasOwn(action.update, "message")) {
+          currentBlock.message = action.update.message ?? null;
+        }
+
+        if (Object.hasOwn(action.update, "display_content")) {
+          currentBlock.display_content = action.update.display_content ?? null;
+        }
         return;
       }
 
@@ -378,16 +367,16 @@ export function reduceConversationDomain(
           return;
         }
 
-        if (Object.hasOwn(action, "message")) {
-          toolResult.message = action.message ?? null;
+        if (Object.hasOwn(action.update, "message")) {
+          toolResult.message = action.update.message ?? null;
         }
 
-        if (Object.hasOwn(action, "displayContent")) {
-          toolResult.display_content = action.displayContent ?? null;
+        if (Object.hasOwn(action.update, "display_content")) {
+          toolResult.display_content = action.update.display_content ?? null;
         }
 
-        if (typeof action.isError === "boolean") {
-          toolResult.is_error = action.isError;
+        if (typeof action.update.is_error === "boolean") {
+          toolResult.is_error = action.update.is_error;
         }
 
         toolUseBlock.stop_timestamp = null;
@@ -405,7 +394,21 @@ export function reduceConversationDomain(
           return;
         }
 
-        Object.assign(currentBlock, action.contentBlock);
+        currentBlock.stop_timestamp = action.stop_timestamp;
+        return;
+      }
+
+      case "message-updated": {
+        const message = findNodeByUuid(
+          draft.mapping,
+          action.messageUuid,
+        )?.message;
+
+        if (!message) {
+          return;
+        }
+
+        Object.assign(message, action.delta);
         return;
       }
 
@@ -421,22 +424,8 @@ export function reduceConversationDomain(
           return;
         }
 
-        Object.assign(toolResult, action.contentBlock);
-        Object.assign(toolUseBlock, action.contentBlock);
-        return;
-      }
-
-      case "message-stopped": {
-        const message = findNodeByUuid(
-          draft.mapping,
-          action.messageUuid,
-        )?.message;
-
-        if (!message) {
-          return;
-        }
-
-        Object.assign(message, action.message);
+        toolResult.stop_timestamp = action.stop_timestamp;
+        toolUseBlock.stop_timestamp = action.stop_timestamp;
         return;
       }
 
@@ -498,7 +487,6 @@ export function reduceConversationDomain(
 
       case "title-updated":
         draft.title = action.title;
-        setConversationUpdatedAt(draft, action.updatedAt);
         return;
 
       default:

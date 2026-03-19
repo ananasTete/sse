@@ -1,3 +1,4 @@
+import { parse as parsePartialJson, Allow } from "partial-json";
 import { createSseParser } from "./sse-parser";
 import {
   createAssistantMessage,
@@ -9,10 +10,11 @@ import type {
   ChatCompletionContentBlockDeltaEvent,
   ChatCompletionContentBlockStartEvent,
   ChatCompletionContentBlockStopEvent,
+  ChatCompletionContentBlockUpdateEvent,
   ChatCompletionMessageLimitEvent,
   ChatCompletionMessageSnapshotEvent,
   ChatCompletionMessageStartEvent,
-  ChatCompletionMessageStopEvent,
+  ChatCompletionMessageUpdateEvent,
   ChatCompletionSseEvent,
   ChatCompletionTitleEvent,
 } from "../models/events";
@@ -32,7 +34,6 @@ type ActiveContentBlock =
     }
   | {
       inputJsonBuffer: string;
-      toolUseId: string;
       type: "tool_use";
     }
   | {
@@ -44,6 +45,14 @@ type ActiveContentBlock =
 function tryParseJson<T>(value: string) {
   try {
     return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function tryParsePartialInput(value: string) {
+  try {
+    return parsePartialJson(value, Allow.ALL) as Record<string, unknown> | null;
   } catch {
     return undefined;
   }
@@ -73,12 +82,10 @@ export async function processChatCompletionStream({
   response,
   dispatch,
   onAssistantMessageStarted,
-  onTitleGenerated,
 }: {
   response: Response;
   dispatch: (action: ConversationAction) => void;
   onAssistantMessageStarted?: () => void;
-  onTitleGenerated?: (title: string) => void;
 }) {
   const responseBody = assertSuccessfulResponse(response);
 
@@ -145,7 +152,6 @@ export async function processChatCompletionStream({
           } else if (block.type === "tool_use") {
             activeContentBlocks.set(index, {
               inputJsonBuffer: block.input ? JSON.stringify(block.input) : "",
-              toolUseId: block.id,
               type: "tool_use",
             });
           }
@@ -176,7 +182,6 @@ export async function processChatCompletionStream({
           case "tool_use":
             activeContentBlocks.set(payload.index, {
               inputJsonBuffer: "",
-              toolUseId: payload.content_block.id,
               type: "tool_use",
             });
             dispatch({
@@ -259,28 +264,20 @@ export async function processChatCompletionStream({
           case "tool_use":
             if (payload.delta.type === "input_json_delta") {
               activeBlock.inputJsonBuffer += payload.delta.partial_json;
-              const parsedInput = tryParseJson<Record<string, unknown> | null>(
+              const parsedInput = tryParsePartialInput(
                 activeBlock.inputJsonBuffer,
               );
 
               if (parsedInput !== undefined) {
                 dispatch({
                   index: payload.index,
-                  input: parsedInput,
                   messageUuid,
-                  type: "tool-use-input-updated",
+                  type: "tool-use-updated",
+                  update: {
+                    input: parsedInput,
+                  },
                 });
               }
-            }
-
-            if (payload.delta.type === "tool_use_block_update_delta") {
-              dispatch({
-                displayContent: payload.delta.display_content,
-                index: payload.index,
-                message: payload.delta.message,
-                messageUuid,
-                type: "tool-use-updated",
-              });
             }
             break;
 
@@ -294,24 +291,50 @@ export async function processChatCompletionStream({
 
               if (parsedDisplayContent !== undefined) {
                 dispatch({
-                  displayContent: parsedDisplayContent,
                   messageUuid,
                   toolUseId: activeBlock.toolUseId,
                   type: "tool-result-updated",
+                  update: {
+                    display_content: parsedDisplayContent,
+                  },
                 });
               }
             }
 
-            if (payload.delta.type === "tool_result_block_update_delta") {
-              dispatch({
-                displayContent: payload.delta.display_content,
-                isError: payload.delta.is_error,
-                message: payload.delta.message,
-                messageUuid,
-                toolUseId: activeBlock.toolUseId,
-                type: "tool-result-updated",
-              });
-            }
+            break;
+        }
+        break;
+      }
+
+      case "content_block_update": {
+        const payload = parsed as ChatCompletionContentBlockUpdateEvent;
+        const messageUuid = getAssistantMessageUuidOrThrow(parsed.type);
+        const activeBlock = activeContentBlocks.get(payload.index);
+
+        if (!activeBlock) {
+          break;
+        }
+
+        switch (activeBlock.type) {
+          case "text":
+            break;
+
+          case "tool_use":
+            dispatch({
+              index: payload.index,
+              messageUuid,
+              type: "tool-use-updated",
+              update: payload.update,
+            });
+            break;
+
+          case "tool_result":
+            dispatch({
+              messageUuid,
+              toolUseId: activeBlock.toolUseId,
+              type: "tool-result-updated",
+              update: payload.update,
+            });
             break;
         }
         break;
@@ -319,12 +342,13 @@ export async function processChatCompletionStream({
 
       case "content_block_stop": {
         const payload = parsed as ChatCompletionContentBlockStopEvent;
+        const messageUuid = getAssistantMessageUuidOrThrow(parsed.type);
         const activeBlock = activeContentBlocks.get(payload.index);
 
         if (activeBlock?.type === "tool_result") {
           dispatch({
-            contentBlock: payload.content_block,
-            messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
+            messageUuid,
+            stop_timestamp: payload.stop_timestamp,
             toolUseId: activeBlock.toolUseId,
             type: "tool-result-stopped",
           });
@@ -333,9 +357,9 @@ export async function processChatCompletionStream({
         }
 
         dispatch({
-          contentBlock: payload.content_block,
           index: payload.index,
-          messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
+          messageUuid,
+          stop_timestamp: payload.stop_timestamp,
           type: "content-block-stopped",
         });
         activeContentBlocks.delete(payload.index);
@@ -355,21 +379,28 @@ export async function processChatCompletionStream({
         break;
       }
 
-      case "message_stop": {
-        const payload = parsed as ChatCompletionMessageStopEvent;
+      case "message_update": {
+        const payload = parsed as ChatCompletionMessageUpdateEvent;
 
         dispatch({
-          message: payload.message,
+          delta: payload.delta,
           messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
-          type: "message-stopped",
+          type: "message-updated",
         });
+        break;
+      }
+
+      case "message_stop": {
         didReceiveMessageStop = true;
         break;
       }
 
       case "title": {
         const payload = parsed as ChatCompletionTitleEvent;
-        onTitleGenerated?.(payload.title);
+        dispatch({
+          title: payload.title,
+          type: "title-updated",
+        });
         break;
       }
 

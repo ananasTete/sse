@@ -201,13 +201,6 @@ export const useConversationStore = create<ConversationStore>()(
               conversation.runtime.status = "streaming";
             });
           },
-          onTitleGenerated: (newTitle) => {
-            get().dispatchDomain(conversationId, {
-              title: newTitle,
-              type: "title-updated",
-              updatedAt: getISOTimestamp(),
-            });
-          },
         });
 
         // 设置状态为结束

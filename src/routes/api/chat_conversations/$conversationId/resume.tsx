@@ -5,6 +5,7 @@ import {
 	subscribeToMessage,
 } from "#/features/chat/server/events/event-bus";
 import { reconstructMessageSnapshot } from "#/features/chat/server/utils/snapshot";
+import { formatSseEvent } from "#/features/chat/streaming";
 
 export const Route = createFileRoute(
 	"/api/chat_conversations/$conversationId/resume",
@@ -88,7 +89,7 @@ export const Route = createFileRoute(
 							
 							if (snapshot) {
 								enqueue(
-									`event: message_snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`
+									formatSseEvent("message_snapshot", snapshot),
 								);
 							}
 
@@ -103,9 +104,9 @@ export const Route = createFileRoute(
 								// Check if we already closed (via subscriber)
 								if (!closed) {
 									enqueue(
-										`event: message_stop\ndata: ${JSON.stringify({
+										formatSseEvent("message_stop", {
 											type: "message_stop",
-										})}\n\n`
+										}),
 									);
 									
 									enqueue(

@@ -70,6 +70,7 @@ describe("citation streaming", () => {
 				{
 					message: {
 						content: [],
+						created_at: "2026-03-11T12:00:00.000Z",
 						id: "chatcompl_1",
 						model: "claude-sonnet-4-6",
 						parent_uuid: "user-1",
@@ -77,6 +78,7 @@ describe("citation streaming", () => {
 						stop_reason: null,
 						stop_sequence: null,
 						type: "message",
+						updated_at: "2026-03-11T12:00:00.000Z",
 						uuid: "assistant-1",
 					},
 					type: "message_start",
@@ -134,17 +136,18 @@ describe("citation streaming", () => {
 					type: "content_block_delta",
 				},
 				{
-					content_block: {
-						stop_timestamp: "2026-03-11T12:00:02.000Z",
-					},
 					index: 0,
+					stop_timestamp: "2026-03-11T12:00:02.000Z",
 					type: "content_block_stop",
 				},
 				{
-					message: {
+					delta: {
 						stop_reason: "end_turn",
 						stop_sequence: null,
 					},
+					type: "message_update",
+				},
+				{
 					type: "message_stop",
 				},
 			]),
@@ -180,6 +183,122 @@ describe("citation streaming", () => {
 				start_index: 7,
 			},
 		]);
+	});
+
+	it("applies tool_use updates and message_update", async () => {
+		const actions: ConversationAction[] = [];
+
+		await processChatCompletionStream({
+			dispatch(action) {
+				actions.push(action);
+			},
+			response: createStreamingResponse([
+				{
+					message: {
+						content: [],
+						created_at: "2026-03-11T12:00:00.000Z",
+						id: "chatcompl_2",
+						model: "claude-sonnet-4-6",
+						parent_uuid: "user-1",
+						role: "assistant",
+						stop_reason: null,
+						stop_sequence: null,
+						type: "message",
+						updated_at: "2026-03-11T12:00:00.000Z",
+						uuid: "assistant-2",
+					},
+					type: "message_start",
+				},
+				{
+					content_block: {
+						display_content: null,
+						flags: null,
+						icon_name: "globe",
+						id: "tool-1",
+						input: null,
+						message: "Searching the web",
+						name: "web_search",
+						start_timestamp: "2026-03-11T12:00:01.000Z",
+						stop_timestamp: null,
+						type: "tool_use",
+					},
+					index: 0,
+					type: "content_block_start",
+				},
+				{
+					delta: {
+						partial_json: "{\"query\":\"Open",
+						type: "input_json_delta",
+					},
+					index: 0,
+					type: "content_block_delta",
+				},
+				{
+					delta: {
+						partial_json: "AI Codex pricing 2026\"}",
+						type: "input_json_delta",
+					},
+					index: 0,
+					type: "content_block_delta",
+				},
+				{
+					index: 0,
+					type: "content_block_update",
+					update: {
+						display_content: {
+							preview_url: "https://developers.openai.com/codex/pricing/",
+						},
+						input: {
+							query: "OpenAI Codex pricing 2026",
+						},
+						message:
+							"Fetching: https://developers.openai.com/codex/pricing/",
+					},
+				},
+				{
+					index: 0,
+					stop_timestamp: "2026-03-11T12:00:02.000Z",
+					type: "content_block_stop",
+				},
+				{
+					delta: {
+						stop_reason: "end_turn",
+						stop_sequence: null,
+					},
+					type: "message_update",
+				},
+				{
+					type: "message_stop",
+				},
+			]),
+		});
+
+		const finalDomain = actions.reduce(
+			(domain, action) => reduceConversationDomain(domain, action),
+			createEmptyConversationDomain(
+				"conversation-2",
+				"2026-03-11T12:00:00.000Z",
+			),
+		);
+		const finalState = {
+			domain: finalDomain,
+			runtime: createInitialConversationRuntimeState(),
+		};
+		const [message] = selectCurrentBranchMessages(finalState);
+		const toolUseBlock = message?.content[0];
+
+		expect(message?.stop_reason).toBe("end_turn");
+		expect(toolUseBlock).toMatchObject({
+			display_content: {
+				preview_url: "https://developers.openai.com/codex/pricing/",
+			},
+			input: {
+				query: "OpenAI Codex pricing 2026",
+			},
+			message: "Fetching: https://developers.openai.com/codex/pricing/",
+			stop_timestamp: "2026-03-11T12:00:02.000Z",
+			type: "tool_use",
+		});
 	});
 });
 

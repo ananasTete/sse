@@ -135,7 +135,6 @@ export const Route = createFileRoute(
 
         // Start background generation (fire and forget)
         runBackgroundGeneration({
-          conversationId: params.conversationId,
           assistantMessageUuid,
           assistantTimestamp,
           body,

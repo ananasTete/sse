@@ -239,34 +239,35 @@ export interface ChatCompletionContentBlockDeltaEvent {
         partial_json: string
         type: 'input_json_delta'
       }
-    | {
-        display_content: unknown | null
-        message: string | null
-        type: 'tool_use_block_update_delta'
-      }
-    | {
-        display_content: unknown | null
-        is_error?: boolean
-        message: string | null
-        type: 'tool_result_block_update_delta'
-      }
   index: number
   type: 'content_block_delta'
 }
 
-export interface ChatCompletionContentBlockStopEvent {
-  content_block: {
-    stop_timestamp: string
-  }
+export interface ChatCompletionContentBlockUpdateEvent {
   index: number
+  type: 'content_block_update'
+  update:
+    | Partial<Pick<ChatToolUseContent, 'display_content' | 'input' | 'message'>>
+    | Partial<
+        Pick<ChatToolResultContent, 'display_content' | 'is_error' | 'message'>
+      >
+}
+
+export interface ChatCompletionContentBlockStopEvent {
+  index: number
+  stop_timestamp: string
   type: 'content_block_stop'
 }
 
-export interface ChatCompletionMessageStopEvent {
-  message: {
+export interface ChatCompletionMessageUpdateEvent {
+  delta: {
     stop_reason: Exclude<ChatStopReason, 'user_canceled' | null>
     stop_sequence: string | null
   }
+  type: 'message_update'
+}
+
+export interface ChatCompletionMessageStopEvent {
   type: 'message_stop'
 }
 
@@ -283,8 +284,10 @@ export interface ChatCompletionMessageSnapshotEvent {
 export type ChatCompletionSseEvent =
   | ChatCompletionContentBlockDeltaEvent
   | ChatCompletionContentBlockStartEvent
+  | ChatCompletionContentBlockUpdateEvent
   | ChatCompletionContentBlockStopEvent
   | ChatCompletionMessageLimitEvent
   | ChatCompletionMessageSnapshotEvent
   | ChatCompletionMessageStartEvent
+  | ChatCompletionMessageUpdateEvent
   | ChatCompletionMessageStopEvent

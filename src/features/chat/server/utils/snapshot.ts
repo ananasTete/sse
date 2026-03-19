@@ -1,16 +1,20 @@
+import { parse as parsePartialJson, Allow } from 'partial-json'
 import type {
   ChatCompletionContentBlockDeltaEvent,
   ChatCompletionContentBlockStartEvent,
   ChatCompletionContentBlockStopEvent,
+  ChatCompletionContentBlockUpdateEvent,
   ChatCompletionMessageLimitEvent,
   ChatCompletionMessageStartEvent,
   ChatCompletionMessageSnapshotEvent,
-  ChatCompletionMessageStopEvent,
+  ChatCompletionMessageUpdateEvent,
+} from '../../models/events'
+import type {
   NewChatMessage,
   ChatContent,
   ChatToolUseContent,
   ChatToolResultContent,
-} from '../../models/chat'
+} from '../../models/message'
 
 function parseSseEvent(eventString: string): { event: string; data: any } | null {
   const lines = eventString.split('\n')
@@ -73,8 +77,6 @@ export function reconstructMessageSnapshot(events: string[]): ChatCompletionMess
         
         if (block.type === 'tool_use') {
            newBlock._inputBuffer = ''
-           // Ensure input is object
-           if (!newBlock.input) newBlock.input = {}
         } else if (block.type === 'tool_result') {
            newBlock._contentBuffer = ''
         } else if (block.type === 'text') {
@@ -113,7 +115,7 @@ export function reconstructMessageSnapshot(events: string[]): ChatCompletionMess
            if (payload.delta.type === 'input_json_delta') {
              block._inputBuffer += payload.delta.partial_json
              try {
-               block.input = JSON.parse(block._inputBuffer)
+               block.input = parsePartialJson(block._inputBuffer, Allow.ALL)
              } catch {}
            }
         } else if (block.type === 'tool_result') {
@@ -127,20 +129,71 @@ export function reconstructMessageSnapshot(events: string[]): ChatCompletionMess
         break
       }
 
+      case 'content_block_update': {
+        const payload = data as ChatCompletionContentBlockUpdateEvent
+        const block = streamBlocks[payload.index]
+        if (!block) continue
+
+        if (block.type === 'tool_use') {
+          const update = payload.update as {
+            display_content?: unknown | null
+            input?: Record<string, unknown> | null
+            message?: string | null
+          }
+
+          if (Object.hasOwn(update, 'message')) {
+            block.message = update.message ?? null
+          }
+
+          if (Object.hasOwn(update, 'display_content')) {
+            block.display_content = update.display_content ?? null
+          }
+
+          if (Object.hasOwn(update, 'input')) {
+            block.input = update.input ?? null
+          }
+        }
+
+        if (block.type === 'tool_result') {
+          const update = payload.update as {
+            display_content?: unknown | null
+            is_error?: boolean
+            message?: string | null
+          }
+
+          if (Object.hasOwn(update, 'message')) {
+            block.message = update.message ?? null
+          }
+
+          if (Object.hasOwn(update, 'display_content')) {
+            block.display_content = update.display_content ?? null
+          }
+
+          if (typeof update.is_error === 'boolean') {
+            block.is_error = update.is_error
+          }
+        }
+        break
+      }
+
       case 'content_block_stop': {
         const payload = data as ChatCompletionContentBlockStopEvent
         const block = streamBlocks[payload.index]
         if (block) {
-          block.stop_timestamp = payload.content_block.stop_timestamp
+          block.stop_timestamp = payload.stop_timestamp
+        }
+        break
+      }
+
+      case 'message_update': {
+        if (message) {
+          const payload = data as ChatCompletionMessageUpdateEvent
+          message.stop_reason = payload.delta.stop_reason
         }
         break
       }
 
       case 'message_stop': {
-        if (message) {
-          const payload = data as ChatCompletionMessageStopEvent
-          message.stop_reason = payload.message.stop_reason
-        }
         break
       }
 

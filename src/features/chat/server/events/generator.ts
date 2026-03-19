@@ -1,9 +1,5 @@
 import { formatSseEvent } from "../../streaming";
 import { getISOTimestamp } from "../../utils/time";
-import {
-  mutateConversation,
-  updateConversationSummaryFields,
-} from "../mock-conversation-store";
 import { publishEvent, isAborted } from "./event-bus";
 import type { ChatCitation } from "../../models/chat";
 import type { ChatCompletionRequest } from "../../models/chat";
@@ -48,7 +44,7 @@ interface SearchResult {
   snippet: string;
 }
 
-function buildSearchResults(query: string): SearchResult[] {
+function buildSearchResults(_query: string): SearchResult[] {
   return [
     {
       title: "DeepSeek API Pricing",
@@ -147,14 +143,12 @@ function buildMockReplySegments(
 
 // Main background generator function
 export async function runBackgroundGeneration({
-  conversationId,
   assistantMessageUuid,
   assistantTimestamp,
   body,
   assistantParentUuid,
   toolUseId,
 }: {
-  conversationId: string;
   assistantMessageUuid: string;
   assistantTimestamp: string;
   body: ChatCompletionRequest;
@@ -224,7 +218,7 @@ export async function runBackgroundGeneration({
             flags: null,
             icon_name: "globe",
             id: toolUseId,
-            input: {},
+            input: null,
             message: "Searching the web",
             name: "web_search",
             start_timestamp: toolUseStartTimestamp,
@@ -239,7 +233,6 @@ export async function runBackgroundGeneration({
       return;
     }
 
-    // Tool input JSON
     for (const chunk of chunkJson(JSON.stringify({ query }))) {
       await sleep(180);
       if (
@@ -258,7 +251,46 @@ export async function runBackgroundGeneration({
       }
     }
 
-    await sleep(700);
+    await sleep(100);
+
+    // Keep emitting a full input snapshot in update for future consumers,
+    // even though the current UI relies on partial-json parsing from delta.
+    if (
+      !enqueue(
+        formatSseEvent("content_block_update", {
+          index: 0,
+          type: "content_block_update",
+          update: {
+            display_content: {
+              preview_url: "https://developers.openai.com/codex/pricing/",
+            },
+            input: { query },
+            message:
+              "Fetching: https://developers.openai.com/codex/pricing/",
+          },
+        }),
+      )
+    ) {
+      return;
+    }
+
+    await sleep(200);
+
+    // Stop tool_use block (index 0)
+    const toolUseStopTimestamp = getISOTimestamp();
+    if (
+      !enqueue(
+        formatSseEvent("content_block_stop", {
+          index: 0,
+          stop_timestamp: toolUseStopTimestamp,
+          type: "content_block_stop",
+        }),
+      )
+    ) {
+      return;
+    }
+
+    await sleep(500);
 
     // Tool result block
     const toolResultStartTimestamp = getISOTimestamp();
@@ -305,7 +337,23 @@ export async function runBackgroundGeneration({
       }
     }
 
-    await sleep(1000);
+    await sleep(200);
+
+    // Stop tool_result block (index 1)
+    const toolResultStopTimestamp = getISOTimestamp();
+    if (
+      !enqueue(
+        formatSseEvent("content_block_stop", {
+          index: 1,
+          stop_timestamp: toolResultStopTimestamp,
+          type: "content_block_stop",
+        }),
+      )
+    ) {
+      return;
+    }
+
+    await sleep(800);
 
     // Text block
     const textBlockStartTimestamp = getISOTimestamp();
@@ -401,10 +449,8 @@ export async function runBackgroundGeneration({
     if (
       !enqueue(
         formatSseEvent("content_block_stop", {
-          content_block: {
-            stop_timestamp: textBlockStopTimestamp,
-          },
           index: 2,
+          stop_timestamp: textBlockStopTimestamp,
           type: "content_block_stop",
         }),
       )
@@ -414,13 +460,24 @@ export async function runBackgroundGeneration({
 
     await sleep(120);
 
-    // Final message stop (with stop reason)
+    if (
+      !enqueue(
+        formatSseEvent("message_update", {
+          delta: {
+            stop_reason: "end_turn",
+            stop_sequence: null,
+          },
+          type: "message_update",
+        }),
+      )
+    ) {
+      return;
+    }
+
+    await sleep(40);
+
     enqueue(
       formatSseEvent("message_stop", {
-        message: {
-          stop_reason: "end_turn",
-          stop_sequence: null,
-        },
         type: "message_stop",
       }),
     );

@@ -51,12 +51,14 @@
 type ChatCompletionSseEvent =
   | ChatCompletionMessageStartEvent // 消息开始
   | ChatCompletionMessageSnapshotEvent // 消息快照（用于恢复）
+  | ChatCompletionMessageUpdateEvent // 消息级 patch
+  | ChatCompletionMessageLimitEvent // 消息限制信息
+  | ChatCompletionMessageStopEvent // 消息结束信号
   | ChatCompletionContentBlockStartEvent // 内容块开始
   | ChatCompletionContentBlockDeltaEvent // 内容块增量更新
+  | ChatCompletionContentBlockUpdateEvent // 内容块字段更新
   | ChatCompletionContentBlockStopEvent // 内容块结束
-  | ChatCompletionMessageDeltaEvent // 消息增量更新
-  | ChatCompletionMessageLimitEvent // 消息限制信息
-  | ChatCompletionMessageStopEvent; // 消息结束
+  | ChatCompletionTitleEvent; // 标题更新
 ```
 
 #### 事件流示例
@@ -66,13 +68,37 @@ event: message_start
 data: {"message": {...}, "type": "message_start"}
 
 event: content_block_start
-data: {"content_block": {...}, "index": 0, "type": "content_block_start"}
+data: {"content_block": {"type": "text", "text": "", "citations": []}, "index": 0, "type": "content_block_start"}
 
 event: content_block_delta
-data: {"delta": {"text": "Hello"}, "index": 0, "type": "content_block_delta"}
+data: {"delta": {"type": "citation_start_delta", "citation": {...}}, "index": 0, "type": "content_block_delta"}
+
+event: content_block_delta
+data: {"delta": {"type": "text_delta", "text": "Hello"}, "index": 0, "type": "content_block_delta"}
 
 event: content_block_stop
 data: {"index": 0, "stop_timestamp": "...", "type": "content_block_stop"}
+
+event: content_block_start
+data: {"content_block": {"type": "tool_use", "input": null}, "index": 1, "type": "content_block_start"}
+
+event: content_block_delta
+data: {"delta": {"type": "input_json_delta", "partial_json": "{\"query\":\"OpenAI\"}"}, "index": 1, "type": "content_block_delta"}
+
+event: content_block_update
+data: {"update": {"input": {...}, "message": "Fetching..."}, "index": 1, "type": "content_block_update"}
+
+event: content_block_stop
+data: {"index": 1, "stop_timestamp": "...", "type": "content_block_stop"}
+
+event: content_block_start
+data: {"content_block": {"type": "tool_result", "tool_use_id": "tool_1"}, "index": 2, "type": "content_block_start"}
+
+event: content_block_delta
+data: {"delta": {"type": "input_json_delta", "partial_json": "[{\"title\":\"Result\"}]"}, "index": 2, "type": "content_block_delta"}
+
+event: message_update
+data: {"delta": {"stop_reason": "end_turn", "stop_sequence": null}, "type": "message_update"}
 
 event: message_stop
 data: {"type": "message_stop"}
@@ -132,17 +158,17 @@ ConversationPage (路由组件)
 
 ### 5. SSE处理核心模块
 
-#### 5.1 SSE解析器 (`utils/sse.ts`)
+#### 5.1 SSE解析器 (`streaming/sse-parser.ts`)
 
 ```typescript
 export function createSseParser(onEvent: (event: ParsedSseEvent) => void) {
   // 使用 eventsource-parser 进行底层解析
-  // 标准化事件名称（默认为 "message"）
+  // 读取 event/data 两层结构
   // 错误处理和状态管理
 }
 ```
 
-#### 5.2 流消费器 (`utils/chat-stream.ts`)
+#### 5.2 流消费器 (`streaming/completion-stream.ts`)
 
 ```typescript
 export async function processChatCompletionStream({
@@ -153,7 +179,7 @@ export async function processChatCompletionStream({
   // 读取 SSE 流
   // 解析各种事件类型
   // 管理活跃内容块状态
-  // 处理引用、工具调用等复杂场景
+  // 处理引用、tool_use 更新、tool_result 拼装等场景
   // 错误处理和流完整性检查
 }
 ```
