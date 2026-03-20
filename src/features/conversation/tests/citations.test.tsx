@@ -13,7 +13,7 @@ import {
 import {
 	createInitialConversationRuntimeState,
 } from '../store/conversation-runtime';
-import { selectCurrentBranchMessages } from '../store/conversation-selectors';
+import { getMessageByUuid, selectCurrentBranchMessageUuids } from '../store/conversation-selectors';
 import type { ChatCitation } from '../models/message';
 import type { ChatCompletionSseEvent } from '../models/events';
 import { MarkdownText } from "#/features/chat/components";
@@ -164,7 +164,8 @@ describe("citation streaming", () => {
 			domain: finalDomain,
 			runtime: createInitialConversationRuntimeState(),
 		};
-		const [message] = selectCurrentBranchMessages(finalState);
+		const [firstUuid] = selectCurrentBranchMessageUuids(finalState);
+		const message = getMessageByUuid(finalState, firstUuid);
 		const textBlock = message?.content[0];
 
 		expect(textBlock).toMatchObject({
@@ -284,7 +285,8 @@ describe("citation streaming", () => {
 			domain: finalDomain,
 			runtime: createInitialConversationRuntimeState(),
 		};
-		const [message] = selectCurrentBranchMessages(finalState);
+		const [firstUuid] = selectCurrentBranchMessageUuids(finalState);
+		const message = getMessageByUuid(finalState, firstUuid);
 		const toolUseBlock = message?.content[0];
 
 		expect(message?.stop_reason).toBe("end_turn");

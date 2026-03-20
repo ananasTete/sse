@@ -1,37 +1,49 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useRef } from 'react'
-import { v7 as generateTimeOrderedUuid } from 'uuid'
-import { ConversationComposer } from '#/features/chat/components'
-import { createChatConversation, upsertConversationListCache } from '#/features/chat/api'
-import { useConversationStore } from '#/features/conversation/store/conversation-store'
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useRef } from "react";
+import { v7 as generateTimeOrderedUuid } from "uuid";
+import { ConversationComposer } from "#/features/chat/components";
+import {
+  createChatConversation,
+  upsertConversationListCache,
+} from "#/features/chat/api";
+import { useConversationStore } from "#/features/conversation/store/conversation-store";
 
-export const Route = createFileRoute('/')({ component: LandingPage })
+export const Route = createFileRoute("/")({ component: LandingPage });
 
 function LandingPage() {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const sendMessage = useConversationStore((state) => state.sendMessage);
 
   const { isPending, mutateAsync } = useMutation({
-    mutationFn: ({ uuid, signal }: { uuid: string; signal: AbortSignal; model: string; prompt: string }) =>
-      createChatConversation({ uuid, signal }),
+    mutationFn: ({
+      uuid,
+      signal,
+    }: {
+      uuid: string;
+      signal: AbortSignal;
+      model: string;
+      prompt: string;
+    }) => createChatConversation({ uuid, signal }),
 
     onSettled: () => {
-      abortControllerRef.current = null
+      abortControllerRef.current = null;
     },
-  })
+  });
 
   const handleSubmit = async ({
     model,
     prompt,
   }: {
-    model: string
-    prompt: string
+    model: string;
+    prompt: string;
   }) => {
-    const conversationId = generateTimeOrderedUuid()
-    const abortController = new AbortController()
-    abortControllerRef.current = abortController
+    const conversationId = generateTimeOrderedUuid();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     // 创建会话
     const createdConversation = await mutateAsync({
@@ -39,28 +51,28 @@ function LandingPage() {
       signal: abortController.signal,
       model,
       prompt,
-    })
+    });
 
     // 更新会话列表显示新会话
-    upsertConversationListCache(queryClient, createdConversation)
+    upsertConversationListCache(queryClient, createdConversation);
 
-    void useConversationStore.getState().sendMessage(conversationId, {
+    void sendMessage(conversationId, {
       model,
       prompt,
     }).catch((error) => {
-      console.error('Initial message failed:', error)
-    })
+      console.error("Initial message failed:", error);
+    });
 
     navigate({
       params: { conversationId },
-      to: '/chat/$conversationId',
-    })
-  }
+      to: "/chat/$conversationId",
+    });
+  };
 
   const handleStop = () => {
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = null
-  }
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+  };
 
   return (
     <div className="flex h-full items-center justify-center px-6 py-10">
@@ -85,5 +97,5 @@ function LandingPage() {
         />
       </div>
     </div>
-  )
+  );
 }

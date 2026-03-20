@@ -1,88 +1,103 @@
-import { Check, Pencil, RotateCcw, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import type { ChatContent } from '../../../conversation/models/message'
-import type { UIMessage } from '../../../conversation/models/ui'
-import { BranchNavigator } from './branch-navigator'
+import { Check, Pencil, RotateCcw, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import type { ChatContent } from "../../../conversation/models/message";
+import {
+  useConversationActions,
+  useMessage,
+  useSiblingUuids,
+} from "../../../conversation/hooks";
+import { BranchNavigator } from "./branch-navigator";
 
 function getFirstTextContent(content: ChatContent[]): string {
-  const block = content.find((b): b is Extract<ChatContent, { type: 'text' }> => b.type === 'text')
-  return block?.text ?? ''
+  const block = content.find(
+    (b): b is Extract<ChatContent, { type: "text" }> => b.type === "text",
+  );
+  return block?.text ?? "";
 }
 
 interface UserMessageViewProps {
-  isBusy: boolean
-  message: UIMessage
-  onBranchSelect: (uuid: string) => void
-  onConfirmEdit: (message: UIMessage, prompt: string) => void
-  onRegenerate: (messageUuid: string) => void
+  conversationId: string;
+  isBusy: boolean;
+  messageUuid: string;
 }
 
 export function UserMessageView({
+  conversationId,
   isBusy,
-  message,
-  onBranchSelect,
-  onConfirmEdit,
-  onRegenerate,
+  messageUuid,
 }: UserMessageViewProps) {
-  const [isEditing, setIsEditing] = useState(false)
-  const [editingPrompt, setEditingPrompt] = useState('')
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const message = useMessage(conversationId, messageUuid);
+  const siblingUuids = useSiblingUuids(conversationId, messageUuid);
+
+  const { editUserMessage, regenerateUserMessage, selectBranch } =
+    useConversationActions();
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Reset editing state if the message is removed from the tree (e.g. branch switch)
   useEffect(() => {
     if (!isEditing) {
-      return
+      return;
     }
 
     return () => {
-      setIsEditing(false)
-      setEditingPrompt('')
-    }
-  }, [isEditing, message.uuid])
+      setIsEditing(false);
+      setEditingPrompt("");
+    };
+  }, [isEditing, messageUuid]);
 
   // Auto-focus textarea when entering edit mode
   useEffect(() => {
     if (isEditing) {
-      textareaRef.current?.focus()
+      textareaRef.current?.focus();
     }
-  }, [isEditing])
+  }, [isEditing]);
+
+  if (!message) {
+    return null;
+  }
 
   const handleStartEdit = () => {
-    setIsEditing(true)
-    setEditingPrompt(getFirstTextContent(message.content))
-  }
+    setIsEditing(true);
+    setEditingPrompt(getFirstTextContent(message.content));
+  };
 
   const handleCancelEdit = () => {
-    setIsEditing(false)
-    setEditingPrompt('')
-  }
+    setIsEditing(false);
+    setEditingPrompt("");
+  };
 
   const handleConfirmEdit = () => {
-    onConfirmEdit(message, editingPrompt)
-    setIsEditing(false)
-    setEditingPrompt('')
-  }
+    editUserMessage(conversationId, messageUuid, {
+      model: message.model,
+      prompt: editingPrompt,
+    });
+    setIsEditing(false);
+    setEditingPrompt("");
+  };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      handleCancelEdit()
+    if (event.key === "Escape") {
+      event.preventDefault();
+      handleCancelEdit();
     }
 
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault()
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
       if (editingPrompt.trim()) {
-        handleConfirmEdit()
+        handleConfirmEdit();
       }
     }
-  }
+  };
 
   return (
     <div
       className={
         isEditing
-          ? 'w-full border border-line bg-user-bubble-bg px-4 py-3'
-          : 'max-w-[min(42rem,92%)] border border-line bg-user-bubble-bg px-4 py-3'
+          ? "w-full border border-line bg-user-bubble-bg px-4 py-3"
+          : "max-w-[min(42rem,92%)] border border-line bg-user-bubble-bg px-4 py-3"
       }
     >
       {isEditing ? (
@@ -91,7 +106,7 @@ export function UserMessageView({
             ref={textareaRef}
             className="min-h-28 w-full resize-y border border-line bg-surface px-3 py-2 text-[0.95rem] leading-7 text-sea-ink outline-none"
             onChange={(event) => {
-              setEditingPrompt(event.target.value)
+              setEditingPrompt(event.target.value);
             }}
             onKeyDown={handleKeyDown}
             value={editingPrompt}
@@ -142,7 +157,7 @@ export function UserMessageView({
               className="inline-flex items-center gap-1 transition hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-40"
               disabled={isBusy}
               onClick={() => {
-                onRegenerate(message.uuid)
+                regenerateUserMessage(conversationId, messageUuid);
               }}
               type="button"
             >
@@ -152,14 +167,15 @@ export function UserMessageView({
           </>
         )}
 
-        {message.branchInfo ? (
+        {siblingUuids ? (
           <BranchNavigator
-            branchInfo={message.branchInfo}
+            siblingUuids={siblingUuids}
+            currentUuid={messageUuid}
             disabled={isBusy || isEditing}
-            onSelect={onBranchSelect}
+            onSelect={(uuid) => void selectBranch(conversationId, uuid)}
           />
         ) : null}
       </div>
     </div>
-  )
+  );
 }

@@ -1,32 +1,31 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import type { BranchInfo } from '../../../conversation/models/ui'
 
 interface BranchNavigatorProps {
-  branchInfo: BranchInfo
+  siblingUuids: string[]
+  currentUuid: string
   disabled: boolean
   onSelect: (uuid: string) => void
 }
 
 export function BranchNavigator({
-  branchInfo,
+  siblingUuids,
+  currentUuid,
   disabled,
   onSelect,
 }: BranchNavigatorProps) {
-  const { branchCount, branchIndex, nextBranchUuid, previousBranchUuid } =
-    branchInfo
-
-  if (branchCount <= 1) {
-    return null
-  }
+  const index = siblingUuids.indexOf(currentUuid)
+  const prev = index > 0 ? siblingUuids[index - 1] : null
+  const next =
+    index < siblingUuids.length - 1 ? siblingUuids[index + 1] : null
 
   return (
     <div className="inline-flex items-center gap-1">
       <button
         className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-line hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-35"
-        disabled={!previousBranchUuid || disabled}
+        disabled={!prev || disabled}
         onClick={() => {
-          if (previousBranchUuid) {
-            onSelect(previousBranchUuid)
+          if (prev) {
+            onSelect(prev)
           }
         }}
         type="button"
@@ -35,15 +34,15 @@ export function BranchNavigator({
       </button>
 
       <span>
-        {branchIndex + 1}/{branchCount}
+        {index + 1}/{siblingUuids.length}
       </span>
 
       <button
         className="inline-flex size-5 items-center justify-center border border-transparent transition hover:border-line hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-35"
-        disabled={!nextBranchUuid || disabled}
+        disabled={!next || disabled}
         onClick={() => {
-          if (nextBranchUuid) {
-            onSelect(nextBranchUuid)
+          if (next) {
+            onSelect(next)
           }
         }}
         type="button"

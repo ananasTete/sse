@@ -1,31 +1,44 @@
-import { RotateCcw } from 'lucide-react'
-import { useState } from 'react'
-import type { UIMessage } from '../../../conversation/models/ui'
-import { BranchNavigator } from './branch-navigator'
-import { MessageContent } from '../message'
+import { RotateCcw } from "lucide-react";
+import { useState } from "react";
+import {
+  useConversationActions,
+  useIsStreamingMessage,
+  useMessage,
+  useSiblingUuids,
+} from "../../../conversation/hooks";
+import { BranchNavigator } from "./branch-navigator";
+import { MessageContent } from "../message";
 
 interface AssistantMessageViewProps {
-  isBusy: boolean
-  message: UIMessage
-  onBranchSelect: (uuid: string) => void
-  onRegenerate: (messageUuid: string) => void
+  conversationId: string;
+  isBusy: boolean;
+  messageUuid: string;
 }
 
 export function AssistantMessageView({
+  conversationId,
   isBusy,
-  message,
-  onBranchSelect,
-  onRegenerate,
+  messageUuid,
 }: AssistantMessageViewProps) {
+  const message = useMessage(conversationId, messageUuid);
+  const siblingUuids = useSiblingUuids(conversationId, messageUuid);
+  const isStreaming = useIsStreamingMessage(conversationId, messageUuid);
+
+  const { regenerate, selectBranch } = useConversationActions();
+
   const [expandedToolBlocks, setExpandedToolBlocks] = useState<
     Record<string, boolean>
-  >({})
+  >({});
 
   const handleToggleToolBlock = (toolUseId: string) => {
     setExpandedToolBlocks((current) => ({
       ...current,
       [toolUseId]: !(current[toolUseId] ?? false),
-    }))
+    }));
+  };
+
+  if (!message) {
+    return null;
   }
 
   return (
@@ -33,7 +46,7 @@ export function AssistantMessageView({
       <MessageContent
         blocks={message.content}
         expandedToolBlocks={expandedToolBlocks}
-        isStreamingMessage={message.isStreaming}
+        isStreamingMessage={isStreaming}
         onToggleToolBlock={handleToggleToolBlock}
       />
 
@@ -42,7 +55,7 @@ export function AssistantMessageView({
           className="inline-flex items-center gap-1 transition hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-40"
           disabled={isBusy}
           onClick={() => {
-            onRegenerate(message.uuid)
+            regenerate(conversationId, messageUuid);
           }}
           type="button"
         >
@@ -50,14 +63,15 @@ export function AssistantMessageView({
           Regenerate
         </button>
 
-        {message.branchInfo ? (
+        {siblingUuids ? (
           <BranchNavigator
-            branchInfo={message.branchInfo}
+            siblingUuids={siblingUuids}
+            currentUuid={messageUuid}
             disabled={isBusy}
-            onSelect={onBranchSelect}
+            onSelect={(uuid) => void selectBranch(conversationId, uuid)}
           />
         ) : null}
       </div>
     </div>
-  )
+  );
 }

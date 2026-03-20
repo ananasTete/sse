@@ -4,7 +4,6 @@
  */
 
 import type { ChatConversationDetail } from "../models/conversation";
-import type { BranchInfo, UIMessage } from "../models/ui";
 
 type ConversationReadState = {
   domain: Pick<
@@ -18,66 +17,52 @@ type ConversationReadState = {
   };
 };
 
+// 根据 current_leaf_message_uuid 计算当前分支的消息 UUID 列表（只关心树结构，不取内容）
+export function selectCurrentBranchMessageUuids(
+  conversation: Pick<ConversationReadState, "domain">,
+): string[] {
+  const uuids: string[] = [];
+  let cursor = conversation.domain.current_leaf_message_uuid;
 
-export function selectCurrentBranchMessages(
-  conversation: ConversationReadState,
-): UIMessage[] {
-  const messages: UIMessage[] = [];
-  const streamingMessageUuid =
-    conversation.runtime.activeRequest?.assistantMessageUuid ?? null;
-  let currentMessageUuid = conversation.domain.current_leaf_message_uuid;
+  while (cursor) {
+    const node = conversation.domain.mapping[cursor];
 
-  while (currentMessageUuid) {
-    const currentNode = conversation.domain.mapping[currentMessageUuid];
-
-    if (!currentNode) {
+    if (!node) {
       break;
     }
 
-    if (currentNode.message) {
-      let branchInfo: BranchInfo | null = null;
-
-      const parentUuid = currentNode.parent_uuid;
-      const parentNode = parentUuid
-        ? conversation.domain.mapping[parentUuid]
-        : null;
-
-      if (parentNode && parentNode.child_uuids.length > 0) {
-        const childUuids = parentNode.child_uuids;
-        const branchIndex = childUuids.indexOf(currentMessageUuid);
-
-        branchInfo = {
-          branchCount: childUuids.length,
-          branchIndex,
-          nextBranchUuid:
-            branchIndex < childUuids.length - 1
-              ? childUuids[branchIndex + 1]
-              : null,
-          previousBranchUuid:
-            branchIndex > 0 ? childUuids[branchIndex - 1] : null,
-        };
-      }
-
-      messages.push({
-        ...currentNode.message,
-        branchInfo,
-        isStreaming: currentNode.message.uuid === streamingMessageUuid,
-      });
+    if (node.message) {
+      uuids.push(cursor);
     }
 
-    currentMessageUuid = currentNode.parent_uuid;
+    cursor = node.parent_uuid;
   }
 
-  return messages.reverse();
+  return uuids.reverse();
 }
 
-export function selectBranchChildUuids(
-  conversation: ConversationReadState,
-  parentMessageUuid: string,
-) {
-  return [...(conversation.domain.mapping[parentMessageUuid]?.child_uuids ?? [])];
+// 获取某条消息的兄弟节点列表（父节点的 child_uuids）
+// 直接返回 Immer store 中的引用，利用结构共享保证引用稳定性
+export function selectSiblingUuids(
+  conversation: Pick<ConversationReadState, "domain">,
+  messageUuid: string,
+): string[] | null {
+  const node = conversation.domain.mapping[messageUuid];
+
+  if (!node?.parent_uuid) {
+    return null;
+  }
+
+  const parentNode = conversation.domain.mapping[node.parent_uuid];
+
+  if (!parentNode || parentNode.child_uuids.length <= 1) {
+    return null;
+  }
+
+  return parentNode.child_uuids;
 }
 
+// 获取某条消息
 export function getMessageByUuid(
   conversation: ConversationReadState,
   messageUuid: string,
