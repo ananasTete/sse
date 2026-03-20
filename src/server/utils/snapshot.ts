@@ -8,13 +8,13 @@ import type {
   ChatCompletionMessageStartEvent,
   ChatCompletionMessageSnapshotEvent,
   ChatCompletionMessageUpdateEvent,
-} from '../../models/events'
+} from '#/features/conversation/models/events'
 import type {
   NewChatMessage,
   ChatContent,
   ChatToolUseContent,
   ChatToolResultContent,
-} from '../../models/message'
+} from '#/features/conversation/models/message'
 
 function parseSseEvent(eventString: string): { event: string; data: any } | null {
   const lines = eventString.split('\n')

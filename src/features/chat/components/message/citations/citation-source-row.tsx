@@ -1,10 +1,10 @@
 import { Globe } from "lucide-react";
 
-import type { ChatCitation, ChatCitationSource } from '../../../models/chat';
 import {
 	getCitationSourceIcon,
 	getCitationSourceLabel,
 } from "./citation-utils";
+import type { ChatCitation, ChatCitationSource } from "#/features/conversation";
 
 interface CitationSourceRowProps {
 	citation: ChatCitation;
@@ -19,7 +19,7 @@ export function CitationSourceRow({
 	const iconUrl = source?.icon_url ?? getCitationSourceIcon(citation);
 
 	return (
-		<span className="flex items-center gap-2 text-xs text-[var(--sea-ink-soft)]">
+		<span className="flex items-center gap-2 text-xs text-sea-ink-soft">
 			{iconUrl ? (
 				<img
 					alt=""
@@ -30,7 +30,7 @@ export function CitationSourceRow({
 					width={16}
 				/>
 			) : (
-				<span className="inline-flex size-4 items-center justify-center rounded-sm bg-[rgba(79,184,178,0.12)] text-[var(--lagoon-deep)]">
+				<span className="inline-flex size-4 items-center justify-center rounded-sm bg-[rgba(79,184,178,0.12)] text-lagoon-deep">
 					<Globe className="size-3" />
 				</span>
 			)}

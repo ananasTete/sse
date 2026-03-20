@@ -36,11 +36,11 @@ export function ToolCallLayout({
 
 	const content = (
 		<>
-			<span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] text-[var(--lagoon-deep)]">
+			<span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-chip-line bg-chip-bg text-lagoon-deep">
 				<ToolIcon iconName={iconName} />
 			</span>
 
-			<span className="min-w-0 flex-1 truncate text-sm text-[var(--sea-ink)]">
+			<span className="min-w-0 flex-1 truncate text-sm text-sea-ink">
 				<span
 					className={cn(
 						"inline truncate font-medium",
@@ -49,14 +49,14 @@ export function ToolCallLayout({
 				>
 					{label}
 				</span>
-				<span className="mx-2 text-[var(--sea-ink-soft)]">·</span>
-				<span className="truncate text-[var(--sea-ink-soft)]">{summary}</span>
+				<span className="mx-2 text-sea-ink-soft">·</span>
+				<span className="truncate text-sea-ink-soft">{summary}</span>
 			</span>
 
 			{hasDetails ? (
 				<ChevronRight
 					className={cn(
-						"size-4 shrink-0 text-[var(--sea-ink-soft)] transition-transform",
+						"size-4 shrink-0 text-sea-ink-soft transition-transform",
 						expanded && "rotate-90",
 					)}
 				/>
@@ -75,7 +75,7 @@ export function ToolCallLayout({
 			)}
 
 			{hasDetails && expanded ? (
-				<div className="rounded-2xl border border-[var(--line)] bg-[rgba(255,255,255,0.44)] p-3">
+				<div className="rounded-2xl border border-line bg-[rgba(255,255,255,0.44)] p-3">
 					{children}
 				</div>
 			) : null}

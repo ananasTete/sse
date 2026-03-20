@@ -1,21 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router'
 import {
   getISOTimestamp,
-} from '#/features/chat/utils/time'
-import { runBackgroundGeneration } from '#/features/chat/server/events/generator'
+} from '#/features/conversation/utils/time'
+import { runBackgroundGeneration } from '#/server/events/generator'
 import {
   mutateConversation,
   updateConversationSummaryFields,
-} from '#/features/chat/server'
+} from '#/server'
 import {
   getHistory,
   isCompleted,
   subscribeToMessage,
-} from '#/features/chat/server/events/event-bus'
+} from '#/server/events/event-bus'
 import type {
   ChatCompletionRequest,
   ChatMessage,
-} from '#/features/chat/models'
+} from '#/features/conversation/models'
 import { v7 as generateTimeOrderedUuid } from 'uuid'
 
 export const Route = createFileRoute(

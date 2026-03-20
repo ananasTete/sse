@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { getISOTimestamp } from '#/features/chat/utils/time'
-import { abortMessage } from '#/features/chat/server/events/event-bus'
-import { mutateConversation } from '#/features/chat/server'
+import { getISOTimestamp } from '#/features/conversation/utils/time'
+import { abortMessage } from '#/server/events/event-bus'
+import { mutateConversation } from '#/server'
 
 export const Route = createFileRoute('/api/chat_conversations/$conversationId/cancel')({
   server: {

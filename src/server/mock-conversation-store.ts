@@ -6,13 +6,13 @@
  * (conversation-api.ts) to avoid confusion between the two layers.
  */
 
-import { ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
+import { ROOT_PARENT_MESSAGE_UUID } from "#/features/conversation/models/constants";
 import type {
   ChatConversationDetail,
   ChatConversationListResponse,
   ChatConversationSummary,
-} from "../models/conversation";
-import type { ConversationMapping } from "../models/conversation-node";
+} from "#/features/conversation/models/conversation";
+import type { ConversationMapping } from "#/features/conversation/models/conversation-node";
 
 const DEFAULT_PAGE_SIZE = 20;
 

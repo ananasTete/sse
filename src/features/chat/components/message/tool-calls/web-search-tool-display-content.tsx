@@ -23,7 +23,7 @@ export function WebSearchToolDisplayContent({
 
 					return (
 						<a
-							className="flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 transition hover:bg-[var(--link-bg-hover)]"
+							className="flex items-start gap-3 rounded-xl border border-line bg-surface px-3 py-3 transition hover:bg-link-bg-hover"
 							href={href}
 							key={key}
 							rel="noreferrer"
@@ -39,21 +39,21 @@ export function WebSearchToolDisplayContent({
 									width={16}
 								/>
 							) : (
-								<span className="mt-0.5 inline-flex size-4 items-center justify-center rounded-sm bg-[rgba(79,184,178,0.12)] text-[var(--lagoon-deep)]">
+								<span className="mt-0.5 inline-flex size-4 items-center justify-center rounded-sm bg-[rgba(79,184,178,0.12)] text-lagoon-deep">
 									<Globe className="size-3" />
 								</span>
 							)}
 
 							<span className="min-w-0 flex-1">
-								<span className="block text-sm font-medium leading-5 text-[var(--sea-ink)]">
+								<span className="block text-sm font-medium leading-5 text-sea-ink">
 									{item.title ?? "Untitled result"}
 								</span>
-								<span className="mt-1 block text-[0.72rem] uppercase tracking-[0.16em] text-[var(--sea-ink-soft)]">
+								<span className="mt-1 block text-[0.72rem] uppercase tracking-[0.16em] text-sea-ink-soft">
 									{domain}
 								</span>
 							</span>
 
-							<ExternalLink className="mt-0.5 size-3.5 shrink-0 text-[var(--sea-ink-soft)]" />
+							<ExternalLink className="mt-0.5 size-3.5 shrink-0 text-sea-ink-soft" />
 						</a>
 					);
 				})}
@@ -68,7 +68,7 @@ export function WebSearchToolDisplayContent({
 	) {
 		return (
 			<a
-				className="inline-flex items-center gap-2 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-xs font-medium text-[var(--sea-ink)] transition hover:bg-white"
+				className="inline-flex items-center gap-2 rounded-full border border-chip-line bg-chip-bg px-3 py-1.5 text-xs font-medium text-sea-ink transition hover:bg-white"
 				href={value.preview_url}
 				rel="noreferrer"
 				target="_blank"

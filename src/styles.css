@@ -27,6 +27,11 @@
   --hero-a: rgba(79, 184, 178, 0.36);
   --hero-b: rgba(47, 106, 74, 0.2);
 
+  --error-fg: rgb(160, 74, 53);
+  --error-bg: rgba(160, 74, 53, 0.08);
+  --error-border: rgba(160, 74, 53, 0.18);
+  --user-bubble-bg: rgba(47, 106, 74, 0.08);
+
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
   --card: oklch(1 0 0);
@@ -82,6 +87,11 @@
   --link-bg-hover: rgba(24, 44, 49, 0.8);
   --hero-a: rgba(96, 215, 207, 0.18);
   --hero-b: rgba(110, 200, 154, 0.12);
+
+  --error-fg: rgb(220, 130, 110);
+  --error-bg: rgba(220, 130, 110, 0.1);
+  --error-border: rgba(220, 130, 110, 0.2);
+  --user-bubble-bg: rgba(110, 200, 154, 0.1);
 
   --background: oklch(0.141 0.005 285.823);
   --foreground: oklch(0.985 0 0);
@@ -155,6 +165,31 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* ── Sea theme tokens ── */
+  --color-sea-ink: var(--sea-ink);
+  --color-sea-ink-soft: var(--sea-ink-soft);
+  --color-lagoon: var(--lagoon);
+  --color-lagoon-deep: var(--lagoon-deep);
+  --color-palm: var(--palm);
+  --color-sand: var(--sand);
+  --color-foam: var(--foam);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-line: var(--line);
+  --color-inset-glint: var(--inset-glint);
+  --color-kicker: var(--kicker);
+  --color-bg-base: var(--bg-base);
+  --color-header-bg: var(--header-bg);
+  --color-chip-bg: var(--chip-bg);
+  --color-chip-line: var(--chip-line);
+  --color-link-bg-hover: var(--link-bg-hover);
+  --color-hero-a: var(--hero-a);
+  --color-hero-b: var(--hero-b);
+  --color-error-fg: var(--error-fg);
+  --color-error-bg: var(--error-bg);
+  --color-error-border: var(--error-border);
+  --color-user-bubble-bg: var(--user-bubble-bg);
 }
 
 html,

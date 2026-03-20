@@ -19,12 +19,6 @@ import {
   findIncompleteStreamMessageUuid,
   getMessageByUuid,
 } from "./conversation-selectors";
-import {
-  fetchChatConversationDetail,
-  getChatCompletionPath,
-  getChatConversationCancelPath,
-  updateChatConversationCurrentLeaf,
-} from "../api/conversation-api";
 import { createUserMessage } from "./message-builders";
 import { processChatCompletionStream } from "../streaming/completion-stream";
 import { getISOTimestamp } from "../utils/time";
@@ -36,6 +30,12 @@ import type {
   RegenerateMessageInput,
   SendMessageInput,
 } from "../models/requests";
+import {
+  fetchChatConversationDetail,
+  getChatCompletionPath,
+  getChatConversationCancelPath,
+  updateChatConversationCurrentLeaf,
+} from "#/features/chat/api";
 
 export interface ConversationState {
   domain: ConversationDomainState;

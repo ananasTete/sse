@@ -3,11 +3,8 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useRef } from 'react'
 import { v7 as generateTimeOrderedUuid } from 'uuid'
 import { ConversationComposer } from '#/features/chat/components'
-import {
-  createChatConversation,
-  upsertConversationListCache,
-} from '#/features/chat/api'
-import { useConversationStore } from '#/features/chat/store/conversation-store'
+import { createChatConversation, upsertConversationListCache } from '#/features/chat/api'
+import { useConversationStore } from '#/features/conversation/store/conversation-store'
 
 export const Route = createFileRoute('/')({ component: LandingPage })
 
@@ -69,13 +66,13 @@ function LandingPage() {
     <div className="flex h-full items-center justify-center px-6 py-10">
       <div className="w-full max-w-3xl">
         <div className="mb-8 space-y-3 text-center">
-          <div className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-[var(--kicker)]">
+          <div className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-kicker">
             Conversations
           </div>
-          <h1 className="font-['Fraunces'] text-4xl text-[var(--sea-ink)] sm:text-5xl">
+          <h1 className="font-['Fraunces'] text-4xl text-sea-ink sm:text-5xl">
             Start a new session
           </h1>
-          <p className="mx-auto max-w-2xl text-sm leading-7 text-[var(--sea-ink-soft)] sm:text-base">
+          <p className="mx-auto max-w-2xl text-sm leading-7 text-sea-ink-soft sm:text-base">
             Use the same composer as an open conversation. Sending here creates
             the session first, then continues in its dedicated route.
           </p>

@@ -4,7 +4,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { processChatCompletionStream } from '../streaming/completion-stream';
-import { MarkdownText } from '../components/message/markdown-text';
 import { formatSseEvent } from '../streaming/sse-parser';
 import {
 	createEmptyConversationDomain,
@@ -17,6 +16,7 @@ import {
 import { selectCurrentBranchMessages } from '../store/conversation-selectors';
 import type { ChatCitation } from '../models/message';
 import type { ChatCompletionSseEvent } from '../models/events';
+import { MarkdownText } from "#/features/chat/components";
 
 function createStreamingResponse(events: ChatCompletionSseEvent[]) {
 	const encoder = new TextEncoder();

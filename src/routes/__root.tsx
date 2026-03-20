@@ -42,12 +42,12 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 function RootLayout() {
   return (
-    <div className="h-screen overflow-hidden bg-[var(--bg-base)] text-[var(--sea-ink)]">
+    <div className="h-screen overflow-hidden bg-bg-base text-sea-ink">
       <div className="flex h-full">
         <ConversationSidebar />
 
         <main className="min-w-0 flex-1 overflow-hidden">
-          <div className="h-full bg-[var(--surface)]">
+          <div className="h-full bg-surface">
             <Outlet />
           </div>
         </main>

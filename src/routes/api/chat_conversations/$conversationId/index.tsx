@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { getConversation, mutateConversation } from '#/features/chat/server'
-import { getHistory } from '#/features/chat/server/events/event-bus'
-import { reconstructMessageSnapshot } from '#/features/chat/server/utils/snapshot'
+import { getConversation, mutateConversation } from '#/server'
+import { getHistory } from '#/server/events/event-bus'
+import { reconstructMessageSnapshot } from '#/server/utils/snapshot'
 
 export const Route = createFileRoute('/api/chat_conversations/$conversationId/')(
   {

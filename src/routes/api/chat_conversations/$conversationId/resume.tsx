@@ -3,9 +3,9 @@ import {
 	getHistory,
 	isCompleted,
 	subscribeToMessage,
-} from "#/features/chat/server/events/event-bus";
-import { reconstructMessageSnapshot } from "#/features/chat/server/utils/snapshot";
-import { formatSseEvent } from "#/features/chat/streaming";
+} from "#/server/events/event-bus";
+import { reconstructMessageSnapshot } from "#/server/utils/snapshot";
+import { formatSseEvent } from "#/features/conversation/streaming";
 
 export const Route = createFileRoute(
 	"/api/chat_conversations/$conversationId/resume",

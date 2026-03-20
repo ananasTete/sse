@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#/components/ui/select'
-import { AVAILABLE_MODELS, DEFAULT_MODEL } from '../../models/constants'
+import { AVAILABLE_MODELS, DEFAULT_MODEL } from '../../../conversation/models/constants'
 import { useVoiceComposer } from '../../hooks/use-voice-composer'
 import { cn } from '#/lib/utils'
 
@@ -57,19 +57,19 @@ export function ConversationComposer({
   }
 
   return (
-    <div className="relative overflow-hidden border border-[var(--line)] bg-white/70 p-2 dark:bg-transparent">
+    <div className="relative overflow-hidden border border-line bg-white/70 p-2 dark:bg-transparent">
       <form className="space-y-3" onSubmit={handleSubmit}>
         <textarea
-          className="min-h-24 w-full resize-none border border-transparent bg-transparent px-3 py-2 text-[0.95rem] leading-7 text-[var(--sea-ink)] outline-none placeholder:text-[var(--sea-ink-soft)]"
+          className="min-h-24 w-full resize-none border border-transparent bg-transparent px-3 py-2 text-[0.95rem] leading-7 text-sea-ink outline-none placeholder:text-sea-ink-soft"
           disabled={isVoiceComposerOpen}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Type a message."
           value={input}
         />
 
-        <div className="flex flex-col gap-3 border-t border-[var(--line)] px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-line px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1.5">
-            <span className="px-2 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
+            <span className="px-2 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-sea-ink-soft">
               Model
             </span>
 
@@ -78,7 +78,7 @@ export function ConversationComposer({
               onValueChange={setSelectedModel}
               value={selectedModel}
             >
-              <SelectTrigger className="h-10 min-w-64 border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] shadow-none">
+              <SelectTrigger className="h-10 min-w-64 border-line bg-surface text-sea-ink shadow-none">
                 <SelectValue placeholder="Select a model" />
               </SelectTrigger>
               <SelectContent>
@@ -93,7 +93,7 @@ export function ConversationComposer({
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
             <button
-              className="inline-flex h-10 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] px-4 text-sm font-medium text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+              className="inline-flex h-10 items-center justify-center border border-sea-ink bg-sea-ink px-4 text-sm font-medium text-foam transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
               disabled={isVoiceComposerOpen}
               onClick={isPending ? onStop : undefined}
               type={isPending ? 'button' : 'submit'}
@@ -113,7 +113,7 @@ export function ConversationComposer({
 
             <button
               aria-label="Record voice input"
-              className="inline-flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] transition hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-10 w-10 items-center justify-center border border-line bg-surface text-sea-ink transition hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-45"
               disabled={isMicDisabled}
               onClick={() => void openVoiceComposer()}
               type="button"
@@ -132,16 +132,16 @@ export function ConversationComposer({
                 <div className="relative flex h-28 w-28 items-center justify-center">
                   <div className="absolute h-28 w-28 animate-ping rounded-full bg-[rgba(47,106,74,0.1)]" />
                   <div className="absolute h-20 w-20 rounded-full border border-[rgba(47,106,74,0.28)] bg-[rgba(47,106,74,0.12)]" />
-                  <div className="relative flex h-14 w-14 items-center justify-center rounded-full border border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--foam)] shadow-[0_12px_30px_rgba(23,58,64,0.24)]">
+                  <div className="relative flex h-14 w-14 items-center justify-center rounded-full border border-sea-ink bg-sea-ink text-foam shadow-[0_12px_30px_rgba(23,58,64,0.24)]">
                     <Mic className="size-5" />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-base font-semibold uppercase tracking-[0.18em] text-[var(--sea-ink)]">
+                  <p className="text-base font-semibold uppercase tracking-[0.18em] text-sea-ink">
                     {voiceComposerStatusText}
                   </p>
-                  <p className="text-sm leading-6 text-[var(--sea-ink-soft)]">
+                  <p className="text-sm leading-6 text-sea-ink-soft">
                     Voice activity detected. Finish the take, then confirm to
                     send it for transcription.
                   </p>
@@ -151,7 +151,7 @@ export function ConversationComposer({
               <div className="flex max-w-sm flex-col items-center gap-4 text-center">
                 <div
                   className={cn(
-                    'flex h-14 w-14 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)]',
+                    'flex h-14 w-14 items-center justify-center rounded-full border border-line bg-surface text-sea-ink',
                     voiceComposerStatus === 'recording' ? 'animate-pulse' : '',
                   )}
                 >
@@ -159,10 +159,10 @@ export function ConversationComposer({
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-base font-semibold text-[var(--sea-ink)]">
+                  <p className="text-base font-semibold text-sea-ink">
                     {voiceComposerStatusText}
                   </p>
-                  <p className="text-sm leading-6 text-[var(--sea-ink-soft)]">
+                  <p className="text-sm leading-6 text-sea-ink-soft">
                     {voiceComposerErrorMessage
                       ? voiceComposerErrorMessage
                       : voiceComposerStatus === 'recording'
@@ -177,7 +177,7 @@ export function ConversationComposer({
           <div className="flex items-center justify-end gap-2">
             <button
               aria-label="Close voice input"
-              className="inline-flex h-11 w-11 items-center justify-center border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-11 w-11 items-center justify-center border border-line bg-surface text-sea-ink transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
               onClick={closeVoiceComposer}
               type="button"
             >
@@ -186,7 +186,7 @@ export function ConversationComposer({
 
             <button
               aria-label="Confirm voice input"
-              className="inline-flex h-11 w-11 items-center justify-center border border-[var(--sea-ink)] bg-[var(--sea-ink)] text-[var(--foam)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-11 w-11 items-center justify-center border border-sea-ink bg-sea-ink text-foam transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
               disabled={!canConfirm}
               onClick={() => void handleConfirmVoiceComposer()}
               type="button"

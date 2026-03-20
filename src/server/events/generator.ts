@@ -1,8 +1,8 @@
-import { formatSseEvent } from "../../streaming";
-import { getISOTimestamp } from "../../utils/time";
+import { formatSseEvent } from "#/features/conversation/streaming";
+import { getISOTimestamp } from "#/features/conversation/utils/time";
 import { publishEvent, isAborted } from "./event-bus";
-import type { ChatCitation } from "../../models/chat";
-import type { ChatCompletionRequest } from "../../models/chat";
+import type { ChatCitation } from "#/features/conversation/models/chat";
+import type { ChatCompletionRequest } from "#/features/conversation/models/chat";
 
 // Helper functions
 function sleep(ms: number) {
@@ -459,6 +459,21 @@ export async function runBackgroundGeneration({
     }
 
     await sleep(120);
+
+    // Send title event after content is fully streamed (not at the beginning)
+    const generatedTitle = `关于「${body.prompt.trim().slice(0, 20)}」的回复`;
+    if (
+      !enqueue(
+        formatSseEvent("title", {
+          title: generatedTitle,
+          type: "title",
+        }),
+      )
+    ) {
+      return;
+    }
+
+    await sleep(80);
 
     if (
       !enqueue(

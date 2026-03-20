@@ -13,14 +13,14 @@ export function DefaultToolDisplayContent({
 
 	if (typeof value === "string") {
 		return (
-			<p className="whitespace-pre-wrap text-sm leading-6 text-[var(--sea-ink)]">
+			<p className="whitespace-pre-wrap text-sm leading-6 text-sea-ink">
 				{value}
 			</p>
 		);
 	}
 
 	return (
-		<pre className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[rgba(255,255,255,0.66)] p-3 text-xs leading-6 text-[var(--sea-ink)]">
+		<pre className="overflow-x-auto rounded-xl border border-line bg-[rgba(255,255,255,0.66)] p-3 text-xs leading-6 text-sea-ink">
 			{formatJson(value)}
 		</pre>
 	);

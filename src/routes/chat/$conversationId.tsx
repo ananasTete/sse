@@ -1,17 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
+import { useEffect, useLayoutEffect } from 'react'
 import { ConversationView } from '#/features/chat/components'
 import {
   conversationKeys,
   fetchChatConversationDetail,
   upsertConversationListCache,
 } from '#/features/chat/api'
-import { useConversationStore } from '#/features/chat/store/conversation-store'
+import { useConversationStore } from '#/features/conversation/store/conversation-store'
 import {
   useConversationSummary,
   useHasConversation,
-} from '#/features/chat/hooks'
-import { useEffect } from 'react'
+} from '#/features/conversation/hooks'
 
 export const Route = createFileRoute('/chat/$conversationId')({
   component: ConversationPage,
@@ -27,52 +27,49 @@ function ConversationPage() {
   const { data, error, isLoading } = useQuery({
     queryFn: () => fetchChatConversationDetail(conversationId),
     queryKey: conversationKeys.detail(conversationId),
-    enabled: !hasConversation,
-    staleTime: 1000 * 10,
+    enabled: !hasConversation, // 新会话会创建 conversation 快照，跳转到页面时不会请求详情
   })
 
-  useEffect(() => {
+  // 在 paint 前同步 hydrate，避免 loading → content 的视觉闪烁
+  useLayoutEffect(() => {
     if (!hasConversation && data) {
       hydrateConversation(data)
     }
   }, [data, hasConversation, hydrateConversation])
 
+  // 会话摘要变化时同步到 sidebar 的列表缓存，title、update_at 变化时会触发
   useEffect(() => {
     if (!summary) {
       return
     }
-
     upsertConversationListCache(queryClient, summary)
   }, [queryClient, summary])
 
+  // 已在 store 中 → 直接渲染
   if (hasConversation) {
     return <ConversationView conversationId={conversationId} />
   }
 
+  // 正在请求 or data 已到但还在等待 hydrate → loading
   if (isLoading || data) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-[var(--sea-ink-soft)]">
+      <div className="flex h-full items-center justify-center text-sm text-sea-ink-soft">
         Loading conversation...
       </div>
     )
   }
 
-  if (!data) {
-    return (
-      <div className="flex h-full items-center justify-center px-6 text-center">
-        <div className="max-w-md space-y-3">
-          <div className="font-['Fraunces'] text-3xl text-[var(--sea-ink)]">
-            Conversation unavailable
-          </div>
-          <p className="text-sm leading-7 text-[var(--sea-ink-soft)]">
-            {error instanceof Error ? error.message : 'Conversation not found.'}
-          </p>
-        </div>
-      </div>
-    )
-  }
-
+  // 请求结束且无数据 → 错误 / 不存在
   return (
-    <ConversationView conversationId={conversationId} />
+    <div className="flex h-full items-center justify-center px-6 text-center">
+      <div className="max-w-md space-y-3">
+        <div className="font-['Fraunces'] text-3xl text-sea-ink">
+          Conversation unavailable
+        </div>
+        <p className="text-sm leading-7 text-sea-ink-soft">
+          {error instanceof Error ? error.message : 'Conversation not found.'}
+        </p>
+      </div>
+    </div>
   )
 }

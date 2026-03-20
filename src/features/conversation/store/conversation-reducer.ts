@@ -116,6 +116,7 @@ export type ConversationAction =
       type: "title-updated";
     };
 
+// 创建空 domain 数据
 export function createEmptyConversationDomain(
   conversationId: string,
   timestamp: string,
@@ -141,13 +142,6 @@ export function createEmptyConversationDomain(
 
 function findNodeByUuid(mapping: ConversationMapping, messageUuid: string) {
   return mapping[messageUuid];
-}
-
-function setConversationUpdatedAt(
-  domain: ConversationDomainState,
-  updatedAt: string,
-) {
-  domain.updated_at = updatedAt;
 }
 
 function getPreferredChildUuid(
@@ -262,8 +256,6 @@ export function reduceConversationDomain(
         } else {
           appendMessageNode(draft, action.message);
         }
-
-        setConversationUpdatedAt(draft, action.message.updated_at);
         return;
       }
 
@@ -453,7 +445,6 @@ export function reduceConversationDomain(
         )?.message;
 
         if (!message) {
-          setConversationUpdatedAt(draft, action.stoppedAt);
           return;
         }
 
