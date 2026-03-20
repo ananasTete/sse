@@ -280,6 +280,7 @@ export const useConversationStore = create<ConversationStore>()(
         });
       },
 
+      // 停止生成响应
       stop: async (conversationId) => {
         const request =
           get().conversations[conversationId]?.runtime.activeRequest;
@@ -288,9 +289,11 @@ export const useConversationStore = create<ConversationStore>()(
           return;
         }
 
+        // 取消前端请求
         request.controller.abort();
 
         try {
+          // 通知后端取消生成
           await get().cancelStream(
             conversationId,
             request.assistantMessageUuid,

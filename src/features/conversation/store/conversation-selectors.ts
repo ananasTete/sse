@@ -3,26 +3,8 @@
  * All selectors are side-effect free and depend only on their arguments.
  */
 
-import type { ChatContent, ChatStatus } from "../models/message";
 import type { ChatConversationDetail } from "../models/conversation";
 import type { BranchInfo, UIMessage } from "../models/ui";
-
-function getTextContent(blocks: ChatContent[]) {
-  return blocks
-    .filter(
-      (
-        block,
-      ): block is Extract<ChatContent, { type: "text" }> =>
-        block != null && block.type === "text",
-    )
-    .map((block) => block.text)
-    .join("");
-}
-
-export function getMessagePlainText(blocks: ChatContent[]) {
-  const text = getTextContent(blocks).trim();
-  return text || " ";
-}
 
 type ConversationReadState = {
   domain: Pick<
@@ -31,7 +13,9 @@ type ConversationReadState = {
     },
     "current_leaf_message_uuid" | "mapping" | "active_child_uuid_by_parent_uuid"
   >;
-  runtime: Pick<{ status: ChatStatus }, "status">;
+  runtime: {
+    activeRequest: { assistantMessageUuid: string } | null;
+  };
 };
 
 
@@ -39,9 +23,8 @@ export function selectCurrentBranchMessages(
   conversation: ConversationReadState,
 ): UIMessage[] {
   const messages: UIMessage[] = [];
-  const isConversationBusy =
-    conversation.runtime.status === "submitted" ||
-    conversation.runtime.status === "streaming";
+  const streamingMessageUuid =
+    conversation.runtime.activeRequest?.assistantMessageUuid ?? null;
   let currentMessageUuid = conversation.domain.current_leaf_message_uuid;
 
   while (currentMessageUuid) {
@@ -78,33 +61,14 @@ export function selectCurrentBranchMessages(
       messages.push({
         ...currentNode.message,
         branchInfo,
-        isStreaming: false,
-        plainText: getMessagePlainText(currentNode.message.content),
+        isStreaming: currentNode.message.uuid === streamingMessageUuid,
       });
     }
 
     currentMessageUuid = currentNode.parent_uuid;
   }
 
-  const orderedMessages = messages.reverse();
-  let lastAssistantIndex = -1;
-
-  for (let index = orderedMessages.length - 1; index >= 0; index -= 1) {
-    const message = orderedMessages[index];
-
-    if (message?.role === "assistant" && message.stop_reason === null) {
-      lastAssistantIndex = index;
-      break;
-    }
-  }
-
-  return orderedMessages.map((message, index) => ({
-    ...message,
-    isStreaming:
-      isConversationBusy &&
-      message.role === "assistant" &&
-      index === lastAssistantIndex,
-  }));
+  return messages.reverse();
 }
 
 export function selectBranchChildUuids(

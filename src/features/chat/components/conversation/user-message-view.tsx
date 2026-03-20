@@ -1,7 +1,13 @@
 import { Check, Pencil, RotateCcw, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import type { ChatContent } from '../../../conversation/models/message'
 import type { UIMessage } from '../../../conversation/models/ui'
 import { BranchNavigator } from './branch-navigator'
+
+function getFirstTextContent(content: ChatContent[]): string {
+  const block = content.find((b): b is Extract<ChatContent, { type: 'text' }> => b.type === 'text')
+  return block?.text ?? ''
+}
 
 interface UserMessageViewProps {
   isBusy: boolean
@@ -43,7 +49,7 @@ export function UserMessageView({
 
   const handleStartEdit = () => {
     setIsEditing(true)
-    setEditingPrompt(message.plainText)
+    setEditingPrompt(getFirstTextContent(message.content))
   }
 
   const handleCancelEdit = () => {
@@ -93,7 +99,7 @@ export function UserMessageView({
         </div>
       ) : (
         <p className="whitespace-pre-wrap text-[0.95rem] leading-7 text-sea-ink">
-          {message.plainText}
+          {getFirstTextContent(message.content)}
         </p>
       )}
 

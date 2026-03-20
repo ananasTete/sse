@@ -10,5 +10,4 @@ export interface BranchInfo {
 export type UIMessage = ChatMessage & {
   branchInfo: BranchInfo | null
   isStreaming: boolean
-  plainText: string
 }

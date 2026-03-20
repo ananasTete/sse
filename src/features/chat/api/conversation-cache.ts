@@ -8,11 +8,11 @@
  * → conversation-api.ts
  */
 
-import { ROOT_PARENT_MESSAGE_UUID } from '../models/constants'
+import { ROOT_PARENT_MESSAGE_UUID } from '../../conversation/models/constants'
 import type {
   ChatConversationDetail,
   PendingInitialConversationSubmission,
-} from '../models/conversation'
+} from '../../conversation/models/conversation'
 
 export function isConversationDetailEmpty(
   detail: Pick<ChatConversationDetail, 'current_leaf_message_uuid' | 'mapping'>,

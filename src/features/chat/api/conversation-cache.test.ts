@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
+import { ROOT_PARENT_MESSAGE_UUID } from "../../conversation/models/constants";
 import type {
   ChatConversationDetail,
   ChatConversationSummary,
-} from "../models/conversation";
+} from "../../conversation/models/conversation";
 import {
   isConversationDetailEmpty,
   shouldUsePendingConversationSeed,
