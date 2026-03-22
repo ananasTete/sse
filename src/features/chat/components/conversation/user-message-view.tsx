@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatContent } from "../../../conversation/models/message";
 import {
   useConversationActions,
-  useConversationStatus,
   useMessage,
   useSiblingUuids,
 } from "../../../conversation/hooks";
@@ -25,12 +24,11 @@ export function UserMessageView({
   conversationId,
   messageUuid,
 }: UserMessageViewProps) {
-  const status = useConversationStatus(conversationId);
-  const isBusy = status === "streaming" || status === "submitted";
+
   const message = useMessage(conversationId, messageUuid);
   const siblingUuids = useSiblingUuids(conversationId, messageUuid);
 
-  const { editUserMessage, regenerateUserMessage, selectBranch } =
+  const { editAndResend, retryFromUserMessage, selectBranch } =
     useConversationActions();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -71,7 +69,7 @@ export function UserMessageView({
   };
 
   const handleConfirmEdit = () => {
-    editUserMessage(conversationId, messageUuid, {
+    editAndResend(conversationId, messageUuid, {
       model: message.model,
       prompt: editingPrompt,
     });
@@ -123,8 +121,7 @@ export function UserMessageView({
         {isEditing ? (
           <>
             <button
-              className="inline-flex items-center gap-1 transition hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={isBusy}
+              className="inline-flex items-center gap-1 transition hover:text-sea-ink"
               onClick={handleCancelEdit}
               type="button"
             >
@@ -134,7 +131,7 @@ export function UserMessageView({
 
             <button
               className="inline-flex items-center gap-1 transition hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={isBusy || !editingPrompt.trim()}
+              disabled={!editingPrompt.trim()}
               onClick={handleConfirmEdit}
               type="button"
             >
@@ -145,8 +142,7 @@ export function UserMessageView({
         ) : (
           <>
             <button
-              className="inline-flex items-center gap-1 transition hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={isBusy}
+              className="inline-flex items-center gap-1 transition hover:text-sea-ink"
               onClick={handleStartEdit}
               type="button"
             >
@@ -155,10 +151,9 @@ export function UserMessageView({
             </button>
 
             <button
-              className="inline-flex items-center gap-1 transition hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={isBusy}
+              className="inline-flex items-center gap-1 transition hover:text-sea-ink"
               onClick={() => {
-                regenerateUserMessage(conversationId, messageUuid);
+                retryFromUserMessage(conversationId, messageUuid);
               }}
               type="button"
             >
@@ -172,7 +167,7 @@ export function UserMessageView({
           <BranchNavigator
             siblingUuids={siblingUuids}
             currentUuid={messageUuid}
-            disabled={isBusy || isEditing}
+            disabled={isEditing}
             onSelect={(uuid) => void selectBranch(conversationId, uuid)}
           />
         ) : null}

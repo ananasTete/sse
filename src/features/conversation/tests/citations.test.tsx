@@ -3,11 +3,12 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { produce } from 'immer';
 import { processChatCompletionStream } from '../streaming/completion-stream';
 import { formatSseEvent } from '../streaming/sse-parser';
 import {
 	createEmptyConversationDomain,
-	reduceConversationDomain,
+	applyConversationAction,
 	type ConversationAction,
 } from '../store/conversation-reducer';
 import {
@@ -154,7 +155,9 @@ describe("citation streaming", () => {
 		});
 
 		const finalDomain = actions.reduce(
-			(domain, action) => reduceConversationDomain(domain, action),
+			(domain, action) => produce(domain, (draft) => {
+				applyConversationAction(draft, action);
+			}),
 			createEmptyConversationDomain(
 				'conversation-1',
 				'2026-03-11T12:00:00.000Z',
@@ -275,7 +278,9 @@ describe("citation streaming", () => {
 		});
 
 		const finalDomain = actions.reduce(
-			(domain, action) => reduceConversationDomain(domain, action),
+			(domain, action) => produce(domain, (draft) => {
+				applyConversationAction(draft, action);
+			}),
 			createEmptyConversationDomain(
 				"conversation-2",
 				"2026-03-11T12:00:00.000Z",

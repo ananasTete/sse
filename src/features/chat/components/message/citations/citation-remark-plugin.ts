@@ -1,124 +1,131 @@
-import type { ChatCitation } from '../../../models/chat';
+import type { ChatCitation } from "#/features/conversation";
 
 interface MarkdownNode {
-	children?: MarkdownNode[];
-	position?: {
-		end?: {
-			offset?: number;
-		};
-		start?: {
-			offset?: number;
-		};
-	};
-	type: string;
-	value?: string;
+  children?: MarkdownNode[];
+  data?: Record<string, unknown>;
+  position?: {
+    end?: {
+      offset?: number;
+    };
+    start?: {
+      offset?: number;
+    };
+  };
+  type: string;
+  value?: string;
 }
 
 function getNodeOffsets(node: MarkdownNode) {
-	const start = node.position?.start?.offset;
-	const end = node.position?.end?.offset;
+  const start = node.position?.start?.offset;
+  const end = node.position?.end?.offset;
 
-	if (typeof start !== "number" || typeof end !== "number") {
-		return null;
-	}
+  if (typeof start !== "number" || typeof end !== "number") {
+    return null;
+  }
 
-	return {
-		end,
-		start,
-	};
+  return {
+    end,
+    start,
+  };
 }
 
 function createCitationHtmlNode(uuid: string): MarkdownNode {
-	return {
-		type: "html",
-		value: `<span data-citation-pill="${uuid}"></span>`,
-	};
+  return {
+    type: "citation",
+    data: {
+      hName: "span",
+      hProperties: {
+        "data-citation-pill": uuid,
+      },
+    },
+    children: [],
+  };
 }
 
 function cloneTextNode(node: MarkdownNode, value: string): MarkdownNode {
-	return {
-		...node,
-		value,
-	};
+  return {
+    ...node,
+    value,
+  };
 }
 
 function injectCitationPills(
-	node: MarkdownNode,
-	citations: ChatCitation[],
-	startIndex = 0,
+  node: MarkdownNode,
+  citations: ChatCitation[],
+  startIndex = 0,
 ): number {
-	if (!Array.isArray(node.children) || node.children.length === 0) {
-		return startIndex;
-	}
+  if (!Array.isArray(node.children) || node.children.length === 0) {
+    return startIndex;
+  }
 
-	const nextChildren: MarkdownNode[] = [];
-	let citationIndex = startIndex;
+  const nextChildren: MarkdownNode[] = [];
+  let citationIndex = startIndex;
 
-	for (const child of node.children) {
-		citationIndex = injectCitationPills(child, citations, citationIndex);
+  for (const child of node.children) {
+    citationIndex = injectCitationPills(child, citations, citationIndex);
 
-		const bounds = getNodeOffsets(child);
+    const bounds = getNodeOffsets(child);
 
-		if (child.type === "text" && typeof child.value === "string" && bounds) {
-			let consumedOffset = bounds.start;
-			let consumedValueLength = 0;
+    if (child.type === "text" && typeof child.value === "string" && bounds) {
+      let consumedOffset = bounds.start;
+      let consumedValueLength = 0;
 
-			while (citationIndex < citations.length) {
-				const citation = citations[citationIndex];
+      while (citationIndex < citations.length) {
+        const citation = citations[citationIndex];
 
-				if (
-					citation.end_index <= consumedOffset ||
-					citation.end_index >= bounds.end
-				) {
-					break;
-				}
+        if (
+          citation.end_index <= consumedOffset ||
+          citation.end_index >= bounds.end
+        ) {
+          break;
+        }
 
-				const sliceEnd = citation.end_index - bounds.start;
-				const segmentValue = child.value.slice(consumedValueLength, sliceEnd);
+        const sliceEnd = citation.end_index - bounds.start;
+        const segmentValue = child.value.slice(consumedValueLength, sliceEnd);
 
-				if (segmentValue) {
-					nextChildren.push(cloneTextNode(child, segmentValue));
-				}
+        if (segmentValue) {
+          nextChildren.push(cloneTextNode(child, segmentValue));
+        }
 
-				nextChildren.push(createCitationHtmlNode(citation.uuid));
-				consumedOffset = citation.end_index;
-				consumedValueLength = sliceEnd;
-				citationIndex += 1;
-			}
+        nextChildren.push(createCitationHtmlNode(citation.uuid));
+        consumedOffset = citation.end_index;
+        consumedValueLength = sliceEnd;
+        citationIndex += 1;
+      }
 
-			const trailingValue = child.value.slice(consumedValueLength);
+      const trailingValue = child.value.slice(consumedValueLength);
 
-			if (trailingValue) {
-				nextChildren.push(cloneTextNode(child, trailingValue));
-			}
-		} else {
-			nextChildren.push(child);
-		}
+      if (trailingValue) {
+        nextChildren.push(cloneTextNode(child, trailingValue));
+      }
+    } else {
+      nextChildren.push(child);
+    }
 
-		while (citationIndex < citations.length && bounds) {
-			const citation = citations[citationIndex];
+    while (citationIndex < citations.length && bounds) {
+      const citation = citations[citationIndex];
 
-			if (citation.end_index !== bounds.end) {
-				break;
-			}
+      if (citation.end_index !== bounds.end) {
+        break;
+      }
 
-			nextChildren.push(createCitationHtmlNode(citation.uuid));
-			citationIndex += 1;
-		}
-	}
+      nextChildren.push(createCitationHtmlNode(citation.uuid));
+      citationIndex += 1;
+    }
+  }
 
-	node.children = nextChildren;
-	return citationIndex;
+  node.children = nextChildren;
+  return citationIndex;
 }
 
 export function createCitationRemarkPlugin(citations: ChatCitation[]) {
-	const sortedCitations = [...citations].sort(
-		(left, right) => left.end_index - right.end_index,
-	);
+  const sortedCitations = [...citations].sort(
+    (left, right) => left.end_index - right.end_index,
+  );
 
-	return () => {
-		return (tree: MarkdownNode) => {
-			injectCitationPills(tree, sortedCitations);
-		};
-	};
+  return () => {
+    return (tree: MarkdownNode) => {
+      injectCitationPills(tree, sortedCitations);
+    };
+  };
 }

@@ -3,42 +3,29 @@
  * All selectors are side-effect free and depend only on their arguments.
  */
 
+import { deriveCurrentBranchMessageUuids } from "./conversation-reducer";
 import type { ChatConversationDetail } from "../models/conversation";
 
 type ConversationReadState = {
   domain: Pick<
-    ChatConversationDetail & {
-      active_child_uuid_by_parent_uuid: Record<string, string>;
-    },
-    "current_leaf_message_uuid" | "mapping" | "active_child_uuid_by_parent_uuid"
-  >;
+    ChatConversationDetail,
+    "current_leaf_message_uuid" | "mapping"
+  > & {
+    current_branch_message_uuids?: string[];
+  };
   runtime: {
     activeRequest: { assistantMessageUuid: string } | null;
   };
 };
 
-// 根据 current_leaf_message_uuid 计算当前分支的消息 UUID 列表（只关心树结构，不取内容）
+// 优先返回 domain 内缓存的当前分支 UUID 列表；缺失时回退到现算。
 export function selectCurrentBranchMessageUuids(
   conversation: Pick<ConversationReadState, "domain">,
 ): string[] {
-  const uuids: string[] = [];
-  let cursor = conversation.domain.current_leaf_message_uuid;
-
-  while (cursor) {
-    const node = conversation.domain.mapping[cursor];
-
-    if (!node) {
-      break;
-    }
-
-    if (node.message) {
-      uuids.push(cursor);
-    }
-
-    cursor = node.parent_uuid;
-  }
-
-  return uuids.reverse();
+  return (
+    conversation.domain.current_branch_message_uuids ??
+    deriveCurrentBranchMessageUuids(conversation.domain)
+  );
 }
 
 // 获取某条消息的兄弟节点列表（父节点的 child_uuids）
@@ -71,13 +58,23 @@ export function getMessageByUuid(
 }
 
 export function findIncompleteStreamMessageUuid(
-  detail: Pick<ChatConversationDetail, "mapping">,
+  detail: Pick<ChatConversationDetail, "current_leaf_message_uuid" | "mapping">,
 ): string | null {
-  const lastMessage = Object.values(detail.mapping)
-    .map((node) => node.message)
-    .filter((msg): msg is NonNullable<typeof msg> => msg !== null)
-    .sort((left, right) => right.index - left.index)
-    .find((msg) => msg.role === "assistant" && msg.stop_reason === null);
+  const leafUuid = detail.current_leaf_message_uuid;
 
-  return lastMessage?.uuid ?? null;
+  if (!leafUuid) {
+    return null;
+  }
+
+  const leafMessage = detail.mapping[leafUuid]?.message;
+
+  if (
+    leafMessage &&
+    leafMessage.role === "assistant" &&
+    leafMessage.stop_reason === null
+  ) {
+    return leafMessage.uuid;
+  }
+
+  return null;
 }

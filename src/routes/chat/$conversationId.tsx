@@ -1,53 +1,55 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useLayoutEffect } from 'react'
-import { ConversationView } from '#/features/chat/components'
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useLayoutEffect } from "react";
+import { ConversationView } from "#/features/chat/components";
 import {
   conversationKeys,
   fetchChatConversationDetail,
   upsertConversationListCache,
-} from '#/features/chat/api'
-import { useConversationStore } from '#/features/conversation/store/conversation-store'
+} from "#/features/chat/api";
+import { useConversationStore } from "#/features/conversation/store/conversation-store";
 import {
   useConversationSummary,
   useHasConversation,
-} from '#/features/conversation/hooks'
+} from "#/features/conversation/hooks";
 
-export const Route = createFileRoute('/chat/$conversationId')({
+export const Route = createFileRoute("/chat/$conversationId")({
   component: ConversationPage,
-})
+});
 
 function ConversationPage() {
-  const { conversationId } = Route.useParams()
-  const queryClient = useQueryClient()
-  const hasConversation = useHasConversation(conversationId)
-  const summary = useConversationSummary(conversationId)
-  const hydrateConversation = useConversationStore((state) => state.hydrateConversation)
+  const { conversationId } = Route.useParams();
+  const queryClient = useQueryClient();
+  const hasConversation = useHasConversation(conversationId);
+  const summary = useConversationSummary(conversationId);
+  const hydrateConversation = useConversationStore(
+    (state) => state.hydrateConversation,
+  );
 
   const { data, error, isLoading } = useQuery({
     queryFn: () => fetchChatConversationDetail(conversationId),
     queryKey: conversationKeys.detail(conversationId),
     enabled: !hasConversation, // 新会话会创建 conversation 快照，跳转到页面时不会请求详情
-  })
+  });
 
-  // 在 paint 前同步 hydrate，避免 loading → content 的视觉闪烁
-  useLayoutEffect(() => {
+  // 请求到会话详情后，同步到 store 中
+  useEffect(() => {
     if (!hasConversation && data) {
-      hydrateConversation(data)
+      hydrateConversation(data);
     }
-  }, [data, hasConversation, hydrateConversation])
+  }, [data, hasConversation, hydrateConversation]);
 
   // 会话摘要变化时同步到 sidebar 的列表缓存，title、update_at 变化时会触发
   useEffect(() => {
     if (!summary) {
-      return
+      return;
     }
-    upsertConversationListCache(queryClient, summary)
-  }, [queryClient, summary])
+    upsertConversationListCache(queryClient, summary);
+  }, [queryClient, summary]);
 
   // 已在 store 中 → 直接渲染
   if (hasConversation) {
-    return <ConversationView conversationId={conversationId} />
+    return <ConversationView conversationId={conversationId} />;
   }
 
   // 正在请求 or data 已到但还在等待 hydrate → loading
@@ -56,7 +58,7 @@ function ConversationPage() {
       <div className="flex h-full items-center justify-center text-sm text-sea-ink-soft">
         Loading conversation...
       </div>
-    )
+    );
   }
 
   // 请求结束且无数据 → 错误 / 不存在
@@ -67,9 +69,9 @@ function ConversationPage() {
           Conversation unavailable
         </div>
         <p className="text-sm leading-7 text-sea-ink-soft">
-          {error instanceof Error ? error.message : 'Conversation not found.'}
+          {error instanceof Error ? error.message : "Conversation not found."}
         </p>
       </div>
     </div>
-  )
+  );
 }

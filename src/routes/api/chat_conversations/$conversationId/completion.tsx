@@ -59,14 +59,7 @@ export const Route = createFileRoute(
               stop_reason: null,
               updated_at: userTimestamp,
               uuid: userMessageUuid,
-              index: 0,
             }
-            
-            const maxIndex = Math.max(
-              ...Object.values(conversation.mapping)
-                .map(node => node.message?.index ?? -1)
-            )
-            userMessage.index = maxIndex + 1
 
             conversation.mapping[userMessageUuid] = {
               child_uuids: [],
@@ -103,15 +96,7 @@ export const Route = createFileRoute(
             stop_reason: null,
             updated_at: assistantTimestamp,
             uuid: assistantMessageUuid,
-            index: 0, // Will be updated below
           }
-          
-          // Assign index
-          const maxIndex2 = Math.max(
-            ...Object.values(conversation.mapping)
-              .map(node => node.message?.index ?? -1)
-          )
-          assistantMessage.index = maxIndex2 + 1
 
           conversation.mapping[assistantMessageUuid] = {
             child_uuids: [],
@@ -150,6 +135,7 @@ export const Route = createFileRoute(
           new ReadableStream({
             start(controller) {
               let closed = false
+              let historyReplayed = false
 
               const close = () => {
                 if (closed) return
@@ -165,19 +151,14 @@ export const Route = createFileRoute(
                 return true
               }
 
-              // Replay any history that might have been generated synchronously before start()
-              const history = getHistory(assistantMessageUuid)
-              for (const event of history) {
-                if (!enqueue(event)) return
-              }
-
-              if (isCompleted(assistantMessageUuid)) {
-                close()
-                return
-              }
-
-              // Subscribe to new events
+              // 1. Subscribe FIRST to catch any events that occur while we replay history.
+              // This prevents a race condition where an event happens between getHistory() and subscribe().
+              // Events received before historyReplayed is true are guaranteed to already be in the history
+              // (because publishEvent is synchronous: push to history → notify subscribers),
+              // so they are already included in the replay below.
               const unsubscribe = subscribeToMessage(assistantMessageUuid, (eventStr) => {
+                if (!historyReplayed) return
+
                 if (!enqueue(eventStr)) return
 
                 if (eventStr.includes('event: message_stop')) {
@@ -186,10 +167,31 @@ export const Route = createFileRoute(
                 }
               })
 
+              // Handle disconnect
               request.signal.addEventListener('abort', () => {
                 unsubscribe()
                 close()
               })
+
+              // 2. Replay any history that has been generated so far
+              const history = getHistory(assistantMessageUuid)
+              for (const event of history) {
+                if (!enqueue(event)) return
+              }
+
+              // 3. Enable pass-through for the subscriber
+              historyReplayed = true
+
+              // 4. If already completed, close the stream.
+              // If the stream completed after we subscribed but before this check,
+              // the subscriber callback would handle it (now that historyReplayed is true).
+              // If it completed before we subscribed, we need to manually close.
+              if (isCompleted(assistantMessageUuid)) {
+                if (!closed) {
+                  close()
+                  unsubscribe()
+                }
+              }
             },
           }),
           {

@@ -4,17 +4,17 @@
 
 ```ts
 const {
-  editUserMessage,
-  regenerate,
-  regenerateUserMessage,
+  editAndResend,
+  retryFromAssistantMessage,
+  retryFromUserMessage,
   selectBranch,
   sendMessage,
   stop,
 } = useConversationStore(
   useShallow((state) => ({
-    editUserMessage: state.editUserMessage,
-    regenerate: state.regenerate,
-    regenerateUserMessage: state.regenerateUserMessage,
+    editAndResend: state.editAndResend,
+    retryFromAssistantMessage: state.retryFromAssistantMessage,
+    retryFromUserMessage: state.retryFromUserMessage,
     selectBranch: state.selectBranch,
     sendMessage: state.sendMessage,
     stop: state.stop,
@@ -26,16 +26,16 @@ const {
 
 ```ts
 const {
-  editUserMessage,
-  regenerate,
-  regenerateUserMessage,
+  editAndResend,
+  retryFromAssistantMessage,
+  retryFromUserMessage,
   selectBranch,
   sendMessage,
   stop,
 } = useConversationStore((state) => ({
-  editUserMessage: state.editUserMessage,
-  regenerate: state.regenerate,
-  regenerateUserMessage: state.regenerateUserMessage,
+  editAndResend: state.editAndResend,
+  retryFromAssistantMessage: state.retryFromAssistantMessage,
+  retryFromUserMessage: state.retryFromUserMessage,
   selectBranch: state.selectBranch,
   sendMessage: state.sendMessage,
   stop: state.stop,
@@ -45,8 +45,8 @@ const {
 或者每一个都单独获取
 
 ```ts
-const editUserMessage = useConversationStore((state) => state.editUserMessage);
-const regenerate = useConversationStore((state) => state.regenerate);
+const editAndResend = useConversationStore((state) => state.editAndResend);
+const retryFromAssistantMessage = useConversationStore((state) => state.retryFromAssistantMessage);
 // ...
 ```
 

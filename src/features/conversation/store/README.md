@@ -128,7 +128,7 @@ interface ConversationRuntimeState {
 负责：
 
 - 创建和维护 `conversations`
-- `sendMessage` / `regenerate` / `resumeStream` / `stop`
+- `sendMessage` / `retryFromAssistantMessage` / `resumeStream` / `stop`
 - 管理 `AbortController`
 - 更新 `runtime.status`
 - 更新 `runtime.activeRequest`
@@ -284,7 +284,7 @@ function isConversationBusy(runtime?: Pick<ConversationRuntimeState, "status" | 
 - 多会话
 - SSE 流式增量更新
 - 工具调用生命周期
-- branch / regenerate
+- branch / retry
 - 页面切换后恢复流
 
 ### 避免的复杂度

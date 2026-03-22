@@ -2,7 +2,6 @@ import { RotateCcw } from "lucide-react";
 import { useState } from "react";
 import {
   useConversationActions,
-  useConversationStatus,
   useIsStreamingMessage,
   useMessage,
   useSiblingUuids,
@@ -19,13 +18,12 @@ export function AssistantMessageView({
   conversationId,
   messageUuid,
 }: AssistantMessageViewProps) {
-  const status = useConversationStatus(conversationId);
-  const isBusy = status === "streaming" || status === "submitted";
+
   const message = useMessage(conversationId, messageUuid);
   const siblingUuids = useSiblingUuids(conversationId, messageUuid);
   const isStreaming = useIsStreamingMessage(conversationId, messageUuid);
 
-  const { regenerate, selectBranch } = useConversationActions();
+  const { retryFromAssistantMessage, selectBranch } = useConversationActions();
 
   const [expandedToolBlocks, setExpandedToolBlocks] = useState<
     Record<string, boolean>
@@ -53,10 +51,9 @@ export function AssistantMessageView({
 
       <div className="mt-3 flex items-center gap-3 border-t border-line pt-3 text-[0.72rem] text-sea-ink-soft">
         <button
-          className="inline-flex items-center gap-1 transition hover:text-sea-ink disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={isBusy}
+          className="inline-flex items-center gap-1 transition hover:text-sea-ink"
           onClick={() => {
-            regenerate(conversationId, messageUuid);
+            retryFromAssistantMessage(conversationId, messageUuid);
           }}
           type="button"
         >
@@ -68,7 +65,7 @@ export function AssistantMessageView({
           <BranchNavigator
             siblingUuids={siblingUuids}
             currentUuid={messageUuid}
-            disabled={isBusy}
+            disabled={false}
             onSelect={(uuid) => void selectBranch(conversationId, uuid)}
           />
         ) : null}

@@ -4,11 +4,11 @@ import {
   useConversationErrorMessage,
   useConversationStatus,
   useCurrentBranchMessageUuids,
+  useMessageRole,
 } from "../../../conversation/hooks";
 import { ConversationComposer } from "./conversation-composer";
 import { UserMessageView } from "./user-message-view";
 import { AssistantMessageView } from "./assistant-message-view";
-import { useMessage } from "../../../conversation/hooks";
 import { useConversationStore } from "#/features/conversation/store/conversation-store";
 
 const MessageItem = memo(function MessageItem({
@@ -18,21 +18,21 @@ const MessageItem = memo(function MessageItem({
   conversationId: string;
   messageUuid: string;
 }) {
-  const message = useMessage(conversationId, messageUuid);
+  const role = useMessageRole(conversationId, messageUuid);
 
-  if (!message) {
+  if (!role) {
     return null;
   }
 
   return (
     <article
       className={
-        message.role === "assistant"
+        role === "assistant"
           ? "flex w-full justify-start"
           : "flex w-full justify-end"
       }
     >
-      {message.role === "user" ? (
+      {role === "user" ? (
         <UserMessageView
           conversationId={conversationId}
           messageUuid={messageUuid}

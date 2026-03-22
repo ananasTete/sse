@@ -1,4 +1,3 @@
-import { produce } from "immer";
 import type {
   ChatCitation,
   ChatMessage,
@@ -13,21 +12,12 @@ import { ROOT_PARENT_MESSAGE_UUID } from "../models/constants";
 /**
  * 领域状态：描述"会话业务实体是什么样的"。
  *
- * 在 ChatConversationDetail（后端 DTO）的基础上，额外携带两个前端领域层维护的字段：
+ * 在 ChatConversationDetail（后端 DTO）的基础上，额外携带前端领域层维护的字段。
  *
- * - active_child_uuid_by_parent_uuid：消息树的"活跃路径索引"。
- *   记录每个父节点当前选中的子分支，是 mapping + current_leaf_message_uuid 的派生结构。
- *   虽然后端不持久化它，但它描述的是"对话树现在是什么样的"，属于领域概念。
- *
- * - next_message_index：下一条本地追加消息的顺序号，等价于 MAX(message.index) + 1。
- *   同样可以从 mapping 派生，是消息实体的计数器，属于领域数据。
- *
- * 这两个字段曾被误放入 Runtime。Runtime 只应描述程序行为（正在请求、出错了），
- * 不应描述业务实体状态。
+ * 分支选择策略：默认显示每个父节点的最后一个子节点（child_uuids 的末尾）。
  */
 export interface ConversationDomainState extends ChatConversationDetail {
-  active_child_uuid_by_parent_uuid: Record<string, string>;
-  next_message_index: number;
+  current_branch_message_uuids: string[];
 }
 
 export type ConversationAction =
@@ -121,12 +111,13 @@ export function createEmptyConversationDomain(
   conversationId: string,
   timestamp: string,
 ): ConversationDomainState {
-  return {
+  const domain: ConversationDomainState = {
     uuid: conversationId,
     title: "",
     created_at: timestamp,
     updated_at: timestamp,
     current_leaf_message_uuid: null,
+    current_branch_message_uuids: [],
     mapping: {
       [ROOT_PARENT_MESSAGE_UUID]: {
         child_uuids: [],
@@ -135,34 +126,17 @@ export function createEmptyConversationDomain(
         uuid: ROOT_PARENT_MESSAGE_UUID,
       },
     },
-    next_message_index: 0,
-    active_child_uuid_by_parent_uuid: {},
   };
+
+  domain.current_branch_message_uuids = deriveCurrentBranchMessageUuids(domain);
+  return domain;
 }
 
 function findNodeByUuid(mapping: ConversationMapping, messageUuid: string) {
   return mapping[messageUuid];
 }
 
-function getPreferredChildUuid(
-  domain: ConversationDomainState,
-  parentUuid: string,
-) {
-  const parentNode = domain.mapping[parentUuid];
-
-  if (!parentNode || parentNode.child_uuids.length === 0) {
-    return null;
-  }
-
-  const activeChildUuid = domain.active_child_uuid_by_parent_uuid[parentUuid];
-
-  if (activeChildUuid && parentNode.child_uuids.includes(activeChildUuid)) {
-    return activeChildUuid;
-  }
-
-  return parentNode.child_uuids[0] ?? null;
-}
-
+// 从某个消息节点找到最新的 leaf 节点
 function resolveLeafMessageUuid(
   domain: ConversationDomainState,
   startMessageUuid: string,
@@ -170,43 +144,63 @@ function resolveLeafMessageUuid(
   let currentMessageUuid = startMessageUuid;
 
   while (true) {
-    const nextChildUuid = getPreferredChildUuid(domain, currentMessageUuid);
+    const node = domain.mapping[currentMessageUuid];
 
-    if (!nextChildUuid) {
+    if (!node || node.child_uuids.length === 0) {
       return currentMessageUuid;
     }
 
-    currentMessageUuid = nextChildUuid;
+    currentMessageUuid = node.child_uuids.at(-1)!;
   }
 }
 
+export function deriveCurrentBranchMessageUuids(
+  domain: Pick<
+    ConversationDomainState,
+    "current_leaf_message_uuid" | "mapping"
+  >,
+): string[] {
+  const uuids: string[] = [];
+  let cursor = domain.current_leaf_message_uuid;
+
+  while (cursor) {
+    const node = domain.mapping[cursor];
+
+    if (!node) {
+      break;
+    }
+
+    if (node.message) {
+      uuids.push(cursor);
+    }
+
+    cursor = node.parent_uuid;
+  }
+
+  uuids.reverse();
+  return uuids;
+}
+
+// 插入新消息
 function appendMessageNode(
   domain: ConversationDomainState,
   message: NewChatMessage,
 ) {
-  const indexedMessage = {
-    ...message,
-    index: domain.next_message_index,
-  } satisfies ChatMessage;
-
-  domain.mapping[indexedMessage.uuid] = {
+  domain.mapping[message.uuid] = {
     child_uuids: [],
-    message: indexedMessage,
-    parent_uuid: indexedMessage.parent_uuid,
-    uuid: indexedMessage.uuid,
+    message,
+    parent_uuid: message.parent_uuid,
+    uuid: message.uuid,
   };
 
-  const parentNode = domain.mapping[indexedMessage.parent_uuid];
+  const parentNode = domain.mapping[message.parent_uuid];
 
-  if (parentNode && !parentNode.child_uuids.includes(indexedMessage.uuid)) {
-    parentNode.child_uuids.push(indexedMessage.uuid);
+  if (parentNode && !parentNode.child_uuids.includes(message.uuid)) {
+    parentNode.child_uuids.push(message.uuid);
   }
 
-  domain.active_child_uuid_by_parent_uuid[indexedMessage.parent_uuid] =
-    indexedMessage.uuid;
-
-  domain.current_leaf_message_uuid = indexedMessage.uuid;
-  domain.next_message_index += 1;
+  domain.current_leaf_message_uuid = message.uuid;
+  domain.current_branch_message_uuids = deriveCurrentBranchMessageUuids(domain);
 }
 
 function findToolUseBlock(
@@ -220,20 +214,19 @@ function findToolUseBlock(
 }
 
 /**
- * Domain 状态机的纯函数入口。
+ * Domain 状态机的 mutable 入口。
  *
- * 签名：(domain, action) => domain
+ * 签名：(draft, action) => void
  *
- * - 只接收 domain，只返回 domain
+ * - 直接修改传入的 draft，不创建额外的 Immer Proxy
+ * - 调用方需要保证 draft 处在可变的上下文中（如 zustand immer 的 set() 回调）
  * - 不感知 runtime（status / activeRequest / errorMessage）
- * - 所有 domain 内字段（包括 active_child_uuid_by_parent_uuid、next_message_index）
- *   均在此函数内一致性更新
+ * - 所有 domain 内字段均在此函数内一致性更新
  */
-export function reduceConversationDomain(
-  domain: ConversationDomainState,
+export function applyConversationAction(
+  draft: ConversationDomainState,
   action: ConversationAction,
-): ConversationDomainState {
-  return produce(domain, (draft) => {
+): void {
     switch (action.type) {
       case "message-appended":
         appendMessageNode(draft, action.message);
@@ -468,11 +461,12 @@ export function reduceConversationDomain(
           return;
         }
 
-        draft.active_child_uuid_by_parent_uuid[parentUuid] = action.messageUuid;
         draft.current_leaf_message_uuid = resolveLeafMessageUuid(
           draft,
           action.messageUuid,
         );
+        draft.current_branch_message_uuids =
+          deriveCurrentBranchMessageUuids(draft);
         return;
       }
 
@@ -483,5 +477,4 @@ export function reduceConversationDomain(
       default:
         return;
     }
-  });
 }

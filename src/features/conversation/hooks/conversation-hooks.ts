@@ -1,10 +1,11 @@
 import { useShallow } from "zustand/react/shallow";
 import {
   getMessageByUuid,
-  selectCurrentBranchMessageUuids,
   selectSiblingUuids,
 } from "../store/conversation-selectors";
 import { useConversationStore } from "../store/conversation-store";
+
+const EMPTY_MESSAGE_UUIDS: string[] = [];
 
 // 检查会话是否存在
 export const useHasConversation = (conversationId: string) => {
@@ -32,9 +33,9 @@ export const useConversationErrorMessage = (conversationId: string) => {
 export const useConversationActions = () => {
   return useConversationStore(
     useShallow((state) => ({
-      editUserMessage: state.editUserMessage,
-      regenerate: state.regenerate,
-      regenerateUserMessage: state.regenerateUserMessage,
+      editAndResend: state.editAndResend,
+      retryFromAssistantMessage: state.retryFromAssistantMessage,
+      retryFromUserMessage: state.retryFromUserMessage,
       selectBranch: state.selectBranch,
       sendMessage: state.sendMessage,
       stop: state.stop,
@@ -45,10 +46,9 @@ export const useConversationActions = () => {
 // 获取会话当前分支的消息 UUID 列表（只关心树结构，低频变化）
 export const useCurrentBranchMessageUuids = (conversationId: string) => {
   return useConversationStore(
-    useShallow((state) => {
-      const conversation = state.conversations[conversationId];
-      return conversation ? selectCurrentBranchMessageUuids(conversation) : [];
-    }),
+    (state) =>
+      state.conversations[conversationId]?.domain.current_branch_message_uuids ??
+      EMPTY_MESSAGE_UUIDS,
   );
 };
 
@@ -58,6 +58,15 @@ export const useMessage = (conversationId: string, messageUuid: string) => {
     const conversation = state.conversations[conversationId];
     return conversation ? getMessageByUuid(conversation, messageUuid) : null;
   });
+};
+
+// 只获取消息的 role（原始值，流式 delta 不会改变 role，引用天然稳定）
+export const useMessageRole = (conversationId: string, messageUuid: string) => {
+  return useConversationStore(
+    (state) =>
+      state.conversations[conversationId]?.domain.mapping[messageUuid]?.message
+        ?.role ?? null,
+  );
 };
 
 // 获取某条消息的兄弟节点列表（直接返回 store 中的引用，利用 Immer 结构共享保证稳定性）

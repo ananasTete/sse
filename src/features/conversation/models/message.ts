@@ -91,7 +91,6 @@ export interface ChatMessage {
   created_at: string
   // Only persisted file ids belong on the message model and completion payload.
   files: string[]
-  index: number
   metadata: ChatMessageMetadata
   model: string
   parent_uuid: string
@@ -101,4 +100,4 @@ export interface ChatMessage {
   uuid: string
 }
 
-export type NewChatMessage = Omit<ChatMessage, 'index'>
+export type NewChatMessage = ChatMessage

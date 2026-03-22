@@ -20,6 +20,17 @@ import type {
 } from "../models/events";
 import type { ConversationAction } from "../store/conversation-reducer";
 
+export class StreamProtocolError extends Error {
+  constructor(
+    message: string,
+    public readonly rawData: string,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "StreamProtocolError";
+  }
+}
+
 type ActiveContentBlock =
   | {
       openCitations: Map<
@@ -42,33 +53,33 @@ type ActiveContentBlock =
       type: "tool_result";
     };
 
-function tryParseJson<T>(value: string) {
+function tryParsePartialJson(value: string): unknown | undefined {
   try {
-    return JSON.parse(value) as T;
+    return parsePartialJson(value, Allow.ALL);
   } catch {
     return undefined;
   }
 }
 
-function tryParsePartialInput(value: string) {
-  try {
-    return parsePartialJson(value, Allow.ALL) as Record<string, unknown> | null;
-  } catch {
-    return undefined;
+function tryParsePartialInput(
+  value: string,
+): Record<string, unknown> | null | undefined {
+  const result = tryParsePartialJson(value);
+  if (result === undefined) return undefined;
+  if (result !== null && typeof result === "object" && !Array.isArray(result)) {
+    return result as Record<string, unknown>;
   }
+  return null;
 }
 
-export function assertSuccessfulResponse(response: Response) {
+export async function assertSuccessfulResponse(response: Response) {
   const { ok, body } = response;
 
   if (!ok) {
+    const errorBody = await response.text().catch(() => "");
     throw new Error(
-      `Chat completion request failed with status ${response.status}.`,
+      `Chat completion request failed with status ${response.status}: ${errorBody}`,
     );
-  }
-
-  if (!body) {
-    throw new Error("Chat completion response did not include a stream body.");
   }
 
   if (!body) {
@@ -87,7 +98,7 @@ export async function processChatCompletionStream({
   dispatch: (action: ConversationAction) => void;
   onAssistantMessageStarted?: () => void;
 }) {
-  const responseBody = assertSuccessfulResponse(response);
+  const responseBody = await assertSuccessfulResponse(response);
 
   const reader = responseBody.getReader();
   const decoder = new TextDecoder();
@@ -95,6 +106,46 @@ export async function processChatCompletionStream({
   let didReceiveMessageStop = false;
   let assistantMessageUuid: string | null = null;
   const activeContentBlocks = new Map<number, ActiveContentBlock>();
+
+  // ---- Text delta batching (RAF) ----
+  // Buffer text deltas and flush once per animation frame to reduce
+  // Immer produce + React re-render frequency during fast streaming.
+  const pendingTextDeltas = new Map<
+    string,
+    { messageUuid: string; index: number; text: string }
+  >();
+  let flushRafId: number | null = null;
+
+  const flushPendingTextDeltas = () => {
+    for (const delta of pendingTextDeltas.values()) {
+      dispatch({
+        index: delta.index,
+        messageUuid: delta.messageUuid,
+        text: delta.text,
+        type: "text-block-delta-received",
+      });
+    }
+    pendingTextDeltas.clear();
+    flushRafId = null;
+  };
+
+  const scheduleTextDeltaFlush = () => {
+    if (flushRafId === null) {
+      flushRafId = requestAnimationFrame(flushPendingTextDeltas);
+    }
+  };
+
+  /** Flush pending text deltas synchronously before dispatching a non-text-delta action. */
+  const flushAndDispatch = (action: ConversationAction) => {
+    if (pendingTextDeltas.size > 0) {
+      if (flushRafId !== null) {
+        cancelAnimationFrame(flushRafId);
+        flushRafId = null;
+      }
+      flushPendingTextDeltas();
+    }
+    dispatch(action);
+  };
 
   const getAssistantMessageUuidOrThrow = (eventType: string) => {
     if (!assistantMessageUuid) {
@@ -105,7 +156,16 @@ export async function processChatCompletionStream({
   };
 
   const parser = createSseParser(({ data }) => {
-    const parsed = JSON.parse(data) as ChatCompletionSseEvent;
+    let parsed: ChatCompletionSseEvent;
+    try {
+      parsed = JSON.parse(data) as ChatCompletionSseEvent;
+    } catch (error) {
+      throw new StreamProtocolError(
+        "Failed to parse SSE event data as JSON.",
+        data,
+        error,
+      );
+    }
 
     switch (parsed.type) {
       case "message_start": {
@@ -118,7 +178,7 @@ export async function processChatCompletionStream({
         onAssistantMessageStarted?.();
 
         // 添加 assistant message
-        dispatch({
+        flushAndDispatch({
           message: createAssistantMessage(payload),
           type: "message-appended",
         });
@@ -131,17 +191,18 @@ export async function processChatCompletionStream({
         // 记录 assistantMessageUuid，供后续事件使用
         assistantMessageUuid = payload.message.uuid;
 
+        // 更新 status
         onAssistantMessageStarted?.();
 
-        dispatch({
+        flushAndDispatch({
           message: payload.message,
           type: "message-snapshot-received",
         });
 
-        // Reconstruct active content blocks from snapshot to support subsequent deltas
+        // 重新构建 activeContentBlocks
         activeContentBlocks.clear();
         payload.message.content.forEach((block, index) => {
-          if (!block) return; // Handle null blocks (array holes from tool_result)
+          if (!block) return;
 
           if (block.type === "text") {
             activeContentBlocks.set(index, {
@@ -171,7 +232,7 @@ export async function processChatCompletionStream({
               textLength: payload.content_block.text.length,
               type: "text",
             });
-            dispatch({
+            flushAndDispatch({
               index: payload.index,
               messageUuid,
               type: "content-block-started",
@@ -184,7 +245,7 @@ export async function processChatCompletionStream({
               inputJsonBuffer: "",
               type: "tool_use",
             });
-            dispatch({
+            flushAndDispatch({
               index: payload.index,
               messageUuid,
               type: "content-block-started",
@@ -198,7 +259,7 @@ export async function processChatCompletionStream({
               toolUseId: payload.content_block.tool_use_id,
               type: "tool_result",
             });
-            dispatch({
+            flushAndDispatch({
               messageUuid,
               type: "tool-result-started",
               value: createToolResultBlock(payload),
@@ -221,12 +282,20 @@ export async function processChatCompletionStream({
           case "text":
             if (payload.delta.type === "text_delta") {
               activeBlock.textLength += payload.delta.text.length;
-              dispatch({
-                index: payload.index,
-                messageUuid,
-                text: payload.delta.text,
-                type: "text-block-delta-received",
-              });
+
+              // Buffer text deltas instead of dispatching immediately
+              const key = `${messageUuid}:${payload.index}`;
+              const existing = pendingTextDeltas.get(key);
+              if (existing) {
+                existing.text += payload.delta.text;
+              } else {
+                pendingTextDeltas.set(key, {
+                  index: payload.index,
+                  messageUuid,
+                  text: payload.delta.text,
+                });
+              }
+              scheduleTextDeltaFlush();
               break;
             }
 
@@ -248,7 +317,7 @@ export async function processChatCompletionStream({
               }
 
               activeBlock.openCitations.delete(payload.delta.citation_uuid);
-              dispatch({
+              flushAndDispatch({
                 citation: {
                   ...openCitation.citation,
                   end_index: activeBlock.textLength,
@@ -258,6 +327,7 @@ export async function processChatCompletionStream({
                 messageUuid,
                 type: "text-block-citation-added",
               });
+              break;
             }
             break;
 
@@ -269,7 +339,7 @@ export async function processChatCompletionStream({
               );
 
               if (parsedInput !== undefined) {
-                dispatch({
+                flushAndDispatch({
                   index: payload.index,
                   messageUuid,
                   type: "tool-use-updated",
@@ -282,15 +352,17 @@ export async function processChatCompletionStream({
             break;
 
           case "tool_result":
+            // The protocol reuses "input_json_delta" for tool_result's display_content
+            // streaming — the delta type name refers to the wire format, not the target field.
             if (payload.delta.type === "input_json_delta") {
               activeBlock.displayContentJsonBuffer +=
                 payload.delta.partial_json;
-              const parsedDisplayContent = tryParseJson<unknown>(
+              const parsedDisplayContent = tryParsePartialJson(
                 activeBlock.displayContentJsonBuffer,
               );
 
               if (parsedDisplayContent !== undefined) {
-                dispatch({
+                flushAndDispatch({
                   messageUuid,
                   toolUseId: activeBlock.toolUseId,
                   type: "tool-result-updated",
@@ -320,7 +392,7 @@ export async function processChatCompletionStream({
             break;
 
           case "tool_use":
-            dispatch({
+            flushAndDispatch({
               index: payload.index,
               messageUuid,
               type: "tool-use-updated",
@@ -329,7 +401,7 @@ export async function processChatCompletionStream({
             break;
 
           case "tool_result":
-            dispatch({
+            flushAndDispatch({
               messageUuid,
               toolUseId: activeBlock.toolUseId,
               type: "tool-result-updated",
@@ -346,7 +418,7 @@ export async function processChatCompletionStream({
         const activeBlock = activeContentBlocks.get(payload.index);
 
         if (activeBlock?.type === "tool_result") {
-          dispatch({
+          flushAndDispatch({
             messageUuid,
             stop_timestamp: payload.stop_timestamp,
             toolUseId: activeBlock.toolUseId,
@@ -356,7 +428,7 @@ export async function processChatCompletionStream({
           break;
         }
 
-        dispatch({
+        flushAndDispatch({
           index: payload.index,
           messageUuid,
           stop_timestamp: payload.stop_timestamp,
@@ -369,7 +441,7 @@ export async function processChatCompletionStream({
       case "message_limit": {
         const payload = parsed as ChatCompletionMessageLimitEvent;
 
-        dispatch({
+        flushAndDispatch({
           messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
           metadata: {
             message_limit: payload.message_limit,
@@ -382,7 +454,7 @@ export async function processChatCompletionStream({
       case "message_update": {
         const payload = parsed as ChatCompletionMessageUpdateEvent;
 
-        dispatch({
+        flushAndDispatch({
           delta: payload.delta,
           messageUuid: getAssistantMessageUuidOrThrow(parsed.type),
           type: "message-updated",
@@ -397,7 +469,7 @@ export async function processChatCompletionStream({
 
       case "title": {
         const payload = parsed as ChatCompletionTitleEvent;
-        dispatch({
+        flushAndDispatch({
           title: payload.title,
           type: "title-updated",
         });
@@ -427,6 +499,21 @@ export async function processChatCompletionStream({
   }
 
   parser.reset();
+
+  // Flush any remaining buffered text deltas synchronously
+  if (pendingTextDeltas.size > 0) {
+    if (flushRafId !== null) {
+      cancelAnimationFrame(flushRafId);
+      flushRafId = null;
+    }
+    flushPendingTextDeltas();
+  }
+
+  if (activeContentBlocks.size > 0) {
+    console.warn(
+      `Stream ended with ${activeContentBlocks.size} unclosed content block(s).`,
+    );
+  }
 
   if (!didReceiveMessageStop) {
     throw new Error("Chat completion stream ended before message_stop.");

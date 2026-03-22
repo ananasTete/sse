@@ -2,15 +2,14 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { v7 as generateTimeOrderedUuid } from "uuid";
 import {
-  reduceConversationDomain,
+  applyConversationAction,
   createEmptyConversationDomain,
+  deriveCurrentBranchMessageUuids,
   type ConversationAction,
   type ConversationDomainState,
 } from "./conversation-reducer";
 import {
-  buildActiveChildMap,
   createInitialConversationRuntimeState,
-  getNextMessageIndex,
   type ActiveRequest,
   type ConversationRuntimeState,
 } from "./conversation-runtime";
@@ -31,7 +30,6 @@ import type {
   SendMessageInput,
 } from "../models/requests";
 import {
-  fetchChatConversationDetail,
   getChatCompletionPath,
   getChatConversationCancelPath,
   updateChatConversationCurrentLeaf,
@@ -44,26 +42,23 @@ export interface ConversationState {
 
 interface ConversationStore {
   conversations: Record<string, ConversationState>;
-  cancelStream: (conversationId: string, messageId: string) => Promise<void>;
-  dispatchDomain: (conversationId: string, action: ConversationAction) => void;
-  editUserMessage: (
+
+  editAndResend: (
     conversationId: string,
     userMessageUuid: string,
     input: EditUserMessageInput,
   ) => Promise<void>;
   hydrateConversation: (detail: ChatConversationDetail) => void;
-  refreshConversation: (conversationId: string) => Promise<void>;
-  regenerate: (
+  retryFromAssistantMessage: (
     conversationId: string,
     assistantMessageUuid: string,
     input?: RegenerateMessageInput,
   ) => Promise<void>;
-  regenerateUserMessage: (
+  retryFromUserMessage: (
     conversationId: string,
     userMessageUuid: string,
     input?: RegenerateMessageInput,
   ) => Promise<void>;
-  resumeStream: (conversationId: string, messageId: string) => Promise<void>;
   selectBranch: (conversationId: string, messageUuid: string) => Promise<void>;
   sendMessage: (
     conversationId: string,
@@ -78,11 +73,7 @@ function createConversationState(
   return {
     domain: {
       ...detail,
-      active_child_uuid_by_parent_uuid: buildActiveChildMap(
-        detail.mapping,
-        detail.current_leaf_message_uuid,
-      ),
-      next_message_index: getNextMessageIndex(detail.mapping),
+      current_branch_message_uuids: deriveCurrentBranchMessageUuids(detail),
     },
     runtime: createInitialConversationRuntimeState(),
   };
@@ -173,6 +164,22 @@ export const useConversationStore = create<ConversationStore>()(
       });
     };
 
+    // 分发更新 domain 数据的 action，domain 状态机的唯一入口
+    const dispatchDomain = (
+      conversationId: string,
+      action: ConversationAction,
+    ) => {
+      set((draft) => {
+        const conversation = draft.conversations[conversationId];
+
+        if (!conversation) {
+          return;
+        }
+
+        applyConversationAction(conversation.domain, action);
+      });
+    };
+
     const runStream = async ({
       assistantMessageUuid,
       conversationId,
@@ -195,7 +202,7 @@ export const useConversationStore = create<ConversationStore>()(
 
         await processChatCompletionStream({
           response,
-          dispatch: (action) => get().dispatchDomain(conversationId, action),
+          dispatch: (action) => dispatchDomain(conversationId, action),
           onAssistantMessageStarted: () => {
             withConversation(conversationId, (conversation) => {
               conversation.runtime.status = "streaming";
@@ -225,83 +232,93 @@ export const useConversationStore = create<ConversationStore>()(
       }
     };
 
+    const cancelStream = async (conversationId: string, messageId: string) => {
+      const stoppedAt = getISOTimestamp();
+
+      try {
+        const response = await fetch(
+          getChatConversationCancelPath(conversationId),
+          {
+            body: JSON.stringify({ message_id: messageId }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to cancel stream");
+        }
+
+        dispatchDomain(conversationId, {
+          messageUuid: messageId,
+          stoppedAt,
+          type: "message-stream-stopped",
+        });
+
+        withConversation(conversationId, (conversation) => {
+          if (
+            conversation.runtime.activeRequest?.assistantMessageUuid ===
+            messageId
+          ) {
+            conversation.runtime.activeRequest = null;
+          }
+          conversation.runtime.errorMessage = null;
+          conversation.runtime.status = "ready";
+        });
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to cancel stream.";
+        setConversationError(conversationId, errorMessage);
+        throw error;
+      }
+    };
+
+    const resumeStream = async (conversationId: string, messageId: string) => {
+      const conversation = get().conversations[conversationId];
+
+      if (!conversation) {
+        return;
+      }
+
+      const message = getMessageByUuid(conversation, messageId);
+
+      if (
+        conversation.runtime.activeRequest?.assistantMessageUuid === messageId
+      ) {
+        return;
+      }
+
+      if (isConversationBusy(conversation.runtime)) {
+        return;
+      }
+
+      if (message?.role !== "assistant" || message.stop_reason !== null) {
+        return;
+      }
+
+      withConversation(conversationId, (draftConversation) => {
+        draftConversation.runtime.status = "submitted";
+      });
+
+      await runStream({
+        assistantMessageUuid: messageId,
+        conversationId,
+        request: async (controller) =>
+          fetch(
+            `/api/chat_conversations/${conversationId}/resume?message_id=${messageId}`,
+            {
+              signal: controller.signal,
+            },
+          ),
+      });
+    };
+
     return {
       conversations: {},
 
-      hydrateConversation: (detail) => {
-        let shouldResume = false;
-        let resumeMessageUuid: string | null = null;
-
-        set((draft) => {
-          if (draft.conversations[detail.uuid]) {
-            return;
-          }
-
-          draft.conversations[detail.uuid] = createConversationState(detail);
-          resumeMessageUuid = findIncompleteStreamMessageUuid(detail);
-          shouldResume = resumeMessageUuid != null;
-        });
-
-        if (shouldResume && resumeMessageUuid) {
-          void get().resumeStream(detail.uuid, resumeMessageUuid);
-        }
-      },
-
-      refreshConversation: async (conversationId) => {
-        const detail = await fetchChatConversationDetail(conversationId);
-
-        set((draft) => {
-          const existingConversation = draft.conversations[conversationId];
-
-          if (
-            !existingConversation ||
-            isConversationBusy(existingConversation.runtime)
-          ) {
-            return;
-          }
-
-          draft.conversations[conversationId] = createConversationState(detail);
-        });
-      },
-
-      // 分发更新 domain 数据的 action，domain 状态机的唯一入口
-      dispatchDomain: (conversationId, action) => {
-        set((draft) => {
-          const conversation = draft.conversations[conversationId];
-
-          if (!conversation) {
-            return;
-          }
-
-          conversation.domain = reduceConversationDomain(
-            conversation.domain,
-            action,
-          );
-        });
-      },
-
-      // 停止生成响应
-      stop: async (conversationId) => {
-        const request =
-          get().conversations[conversationId]?.runtime.activeRequest;
-
-        if (!request) {
-          return;
-        }
-
-        // 取消前端请求
-        request.controller.abort();
-
-        try {
-          // 通知后端取消生成
-          await get().cancelStream(
-            conversationId,
-            request.assistantMessageUuid,
-          );
-        } finally {
-          clearActiveRequest(conversationId, request.controller);
-        }
-      },
+      // ==========================================
+      // 发起和停止
+      // ==========================================
 
       sendMessage: async (
         conversationId,
@@ -335,7 +352,7 @@ export const useConversationStore = create<ConversationStore>()(
           ROOT_PARENT_MESSAGE_UUID;
 
         // 乐观更新用户消息
-        get().dispatchDomain(conversationId, {
+        dispatchDomain(conversationId, {
           message: createUserMessage({
             files,
             model: messageModel,
@@ -374,7 +391,30 @@ export const useConversationStore = create<ConversationStore>()(
         });
       },
 
-      regenerateUserMessage: async (conversationId, userMessageUuid, input) => {
+      stop: async (conversationId) => {
+        const request =
+          get().conversations[conversationId]?.runtime.activeRequest;
+
+        if (!request) {
+          return;
+        }
+
+        // 取消前端请求
+        request.controller.abort();
+
+        try {
+          // 通知后端取消生成
+          await cancelStream(conversationId, request.assistantMessageUuid);
+        } finally {
+          clearActiveRequest(conversationId, request.controller);
+        }
+      },
+
+      // ==========================================
+      // 重试
+      // ==========================================
+
+      retryFromUserMessage: async (conversationId, userMessageUuid, input) => {
         const conversation = get().conversations[conversationId];
 
         if (!conversation) {
@@ -420,7 +460,7 @@ export const useConversationStore = create<ConversationStore>()(
         });
       },
 
-      editUserMessage: async (conversationId, userMessageUuid, input) => {
+      editAndResend: async (conversationId, userMessageUuid, input) => {
         const conversation = get().conversations[conversationId];
 
         if (!conversation) {
@@ -441,7 +481,11 @@ export const useConversationStore = create<ConversationStore>()(
         });
       },
 
-      regenerate: async (conversationId, assistantMessageUuid, input) => {
+      retryFromAssistantMessage: async (
+        conversationId,
+        assistantMessageUuid,
+        input,
+      ) => {
         const conversation = get().conversations[conversationId];
 
         if (!conversation) {
@@ -457,7 +501,7 @@ export const useConversationStore = create<ConversationStore>()(
           throw new Error("Only assistant messages can be regenerated.");
         }
 
-        await get().regenerateUserMessage(
+        await get().retryFromUserMessage(
           conversationId,
           assistantMessage.parent_uuid,
           {
@@ -466,6 +510,10 @@ export const useConversationStore = create<ConversationStore>()(
           },
         );
       },
+
+      // ==========================================
+      // 分支
+      // ==========================================
 
       selectBranch: async (conversationId, messageUuid) => {
         const conversation = get().conversations[conversationId];
@@ -478,7 +526,7 @@ export const useConversationStore = create<ConversationStore>()(
           throw new Error("A message is already being generated.");
         }
 
-        get().dispatchDomain(conversationId, {
+        dispatchDomain(conversationId, {
           messageUuid,
           type: "branch-selected",
         });
@@ -498,84 +546,28 @@ export const useConversationStore = create<ConversationStore>()(
         }
       },
 
-      resumeStream: async (conversationId, messageId) => {
-        const conversation = get().conversations[conversationId];
+      // ==========================================
+      // 回放
+      // ==========================================
 
-        if (!conversation) {
-          return;
-        }
+      hydrateConversation: (detail) => {
+        let shouldResume = false;
+        let resumeMessageUuid: string | null = null;
 
-        const message = getMessageByUuid(conversation, messageId);
-
-        if (
-          conversation.runtime.activeRequest?.assistantMessageUuid === messageId
-        ) {
-          return;
-        }
-
-        if (isConversationBusy(conversation.runtime)) {
-          return;
-        }
-
-        if (message?.role !== "assistant" || message.stop_reason !== null) {
-          return;
-        }
-
-        withConversation(conversationId, (draftConversation) => {
-          draftConversation.runtime.status = "submitted";
-        });
-
-        await runStream({
-          assistantMessageUuid: messageId,
-          conversationId,
-          request: async (controller) =>
-            fetch(
-              `/api/chat_conversations/${conversationId}/resume?message_id=${messageId}`,
-              {
-                signal: controller.signal,
-              },
-            ),
-        });
-      },
-
-      cancelStream: async (conversationId, messageId) => {
-        const stoppedAt = getISOTimestamp();
-
-        try {
-          const response = await fetch(
-            getChatConversationCancelPath(conversationId),
-            {
-              body: JSON.stringify({ message_id: messageId }),
-              headers: { "Content-Type": "application/json" },
-              method: "POST",
-            },
-          );
-
-          if (!response.ok) {
-            throw new Error("Failed to cancel stream");
+        set((draft) => {
+          if (draft.conversations[detail.uuid]) {
+            return;
           }
 
-          get().dispatchDomain(conversationId, {
-            messageUuid: messageId,
-            stoppedAt,
-            type: "message-stream-stopped",
-          });
+          // 构建新 conversation
+          draft.conversations[detail.uuid] = createConversationState(detail);
+          // 判断最新消息是否未完成
+          resumeMessageUuid = findIncompleteStreamMessageUuid(detail);
+          shouldResume = resumeMessageUuid != null;
+        });
 
-          withConversation(conversationId, (conversation) => {
-            if (
-              conversation.runtime.activeRequest?.assistantMessageUuid ===
-              messageId
-            ) {
-              conversation.runtime.activeRequest = null;
-            }
-            conversation.runtime.errorMessage = null;
-            conversation.runtime.status = "ready";
-          });
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : "Failed to cancel stream.";
-          setConversationError(conversationId, errorMessage);
-          throw error;
+        if (shouldResume && resumeMessageUuid) {
+          void resumeStream(detail.uuid, resumeMessageUuid);
         }
       },
     };
