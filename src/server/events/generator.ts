@@ -104,7 +104,7 @@ function buildMockReplySegments(
 ): MockReplySegment[] {
   const prompt = body.prompt.trim();
   const citationResult = searchResults[2] ?? searchResults[0];
-  const citation = toCitation(citationResult);
+  const citation = toCitation(citationResult!);
 
   return [
     {
@@ -141,6 +141,510 @@ function buildMockReplySegments(
   ];
 }
 
+interface GeneratorContext {
+  assistantMessageUuid: string;
+  assistantTimestamp: string;
+  body: ChatCompletionRequest;
+  assistantParentUuid: string;
+  toolUseId: string;
+  enqueue: (chunk: string) => boolean;
+}
+
+function sendCommonMessageStart(ctx: GeneratorContext) {
+  return ctx.enqueue(
+    formatSseEvent("message_start", {
+      message: {
+        content: [],
+        created_at: ctx.assistantTimestamp,
+        id: `chatcompl_${ctx.assistantMessageUuid.replaceAll("-", "")}`,
+        model: ctx.body.model,
+        parent_uuid: ctx.assistantParentUuid,
+        role: "assistant",
+        stop_reason: null,
+        stop_sequence: null,
+        type: "message",
+        updated_at: ctx.assistantTimestamp,
+        uuid: ctx.assistantMessageUuid,
+      },
+      type: "message_start",
+    }),
+  );
+}
+
+function sendCommonMessageTitleTitle(ctx: GeneratorContext, overrideTitle?: string) {
+  const generatedTitle = overrideTitle ?? `关于「${ctx.body.prompt.trim().slice(0, 20)}」的回复`;
+  return ctx.enqueue(
+    formatSseEvent("title", {
+      title: generatedTitle,
+      type: "title",
+    }),
+  );
+}
+
+function sendCommonMessageEnd(ctx: GeneratorContext) {
+  if (
+    !ctx.enqueue(
+      formatSseEvent("message_update", {
+        delta: {
+          stop_reason: "end_turn",
+          stop_sequence: null,
+        },
+        type: "message_update",
+      }),
+    )
+  ) {
+    return false;
+  }
+
+  ctx.enqueue(
+    formatSseEvent("message_stop", {
+      type: "message_stop",
+    }),
+  );
+  return true;
+}
+
+// -----------------------------------------------------------------------------
+// Generators
+// -----------------------------------------------------------------------------
+
+async function generateToolResponse(ctx: GeneratorContext) {
+  let textLength = 0;
+  const openCitations = new Map<
+    string,
+    {
+      citation: Omit<ChatCitation, "end_index" | "start_index">;
+      startIndex: number;
+    }
+  >();
+
+  const query = buildSearchQuery(ctx.body);
+  const searchResults = buildSearchResults(query);
+  const replySegments = buildMockReplySegments(ctx.body, query, searchResults);
+
+  if (!sendCommonMessageStart(ctx)) return;
+
+  await sleep(280);
+
+  // Tool use block
+  const toolUseStartTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_start", {
+        content_block: {
+          display_content: null,
+          flags: null,
+          icon_name: "globe",
+          id: ctx.toolUseId,
+          input: null,
+          message: "Searching the web",
+          name: "web_search",
+          start_timestamp: toolUseStartTimestamp,
+          stop_timestamp: null,
+          type: "tool_use",
+        },
+        index: 0,
+        type: "content_block_start",
+      }),
+    )
+  ) return;
+
+  for (const chunk of chunkJson(JSON.stringify({ query }))) {
+    await sleep(180);
+    if (
+      !ctx.enqueue(
+        formatSseEvent("content_block_delta", {
+          delta: {
+            partial_json: chunk,
+            type: "input_json_delta",
+          },
+          index: 0,
+          type: "content_block_delta",
+        }),
+      )
+    ) return;
+  }
+
+  await sleep(100);
+
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_update", {
+        index: 0,
+        type: "content_block_update",
+        update: {
+          display_content: {
+            preview_url: "https://developers.openai.com/codex/pricing/",
+          },
+          input: { query },
+          message: "Fetching: https://developers.openai.com/codex/pricing/",
+        },
+      }),
+    )
+  ) return;
+
+  await sleep(200);
+
+  const toolUseStopTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_stop", {
+        index: 0,
+        stop_timestamp: toolUseStopTimestamp,
+        type: "content_block_stop",
+      }),
+    )
+  ) return;
+
+  await sleep(500);
+
+  // Tool result block
+  const toolResultStartTimestamp = getISOTimestamp();
+  const toolResultMessage = `Found ${searchResults.length} sources`;
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_start", {
+        content_block: {
+          display_content: null,
+          flags: null,
+          icon_name: "globe",
+          is_error: false,
+          message: toolResultMessage,
+          name: "web_search",
+          start_timestamp: toolResultStartTimestamp,
+          stop_timestamp: null,
+          tool_use_id: ctx.toolUseId,
+          type: "tool_result",
+        },
+        index: 1,
+        type: "content_block_start",
+      }),
+    )
+  ) return;
+
+  for (const chunk of chunkJson(JSON.stringify(searchResults))) {
+    await sleep(160);
+    if (
+      !ctx.enqueue(
+        formatSseEvent("content_block_delta", {
+          delta: {
+            partial_json: chunk,
+            type: "input_json_delta",
+          },
+          index: 1,
+          type: "content_block_delta",
+        }),
+      )
+    ) return;
+  }
+
+  await sleep(200);
+
+  const toolResultStopTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_stop", {
+        index: 1,
+        stop_timestamp: toolResultStopTimestamp,
+        type: "content_block_stop",
+      }),
+    )
+  ) return;
+
+  await sleep(800);
+
+  // Text block
+  const textBlockStartTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_start", {
+        content_block: {
+          citations: [],
+          flags: null,
+          start_timestamp: textBlockStartTimestamp,
+          stop_timestamp: null,
+          text: "",
+          type: "text",
+        },
+        index: 2,
+        type: "content_block_start",
+      }),
+    )
+  ) return;
+
+  for (const segment of replySegments) {
+    if (segment.type === "citation_start") {
+      await sleep(70);
+      if (
+        !ctx.enqueue(
+          formatSseEvent("content_block_delta", {
+            delta: {
+              citation: segment.citation!,
+              type: "citation_start_delta",
+            },
+            index: 2,
+            type: "content_block_delta",
+          }),
+        )
+      ) return;
+      openCitations.set(segment.citation!.uuid, {
+        citation: segment.citation!,
+        startIndex: textLength,
+      });
+      continue;
+    }
+
+    if (segment.type === "citation_end") {
+      await sleep(70);
+      if (
+        !ctx.enqueue(
+          formatSseEvent("content_block_delta", {
+            delta: {
+              citation_uuid: segment.citationUuid!,
+              type: "citation_end_delta",
+            },
+            index: 2,
+            type: "content_block_delta",
+          }),
+        )
+      ) return;
+      openCitations.delete(segment.citationUuid!);
+      continue;
+    }
+
+    for (const chunk of chunkText(segment.text || "")) {
+      await sleep(70);
+      if (
+        !ctx.enqueue(
+          formatSseEvent("content_block_delta", {
+            delta: {
+              text: chunk,
+              type: "text_delta",
+            },
+            index: 2,
+            type: "content_block_delta",
+          }),
+        )
+      ) return;
+      textLength += chunk.length;
+    }
+  }
+
+  await sleep(180);
+
+  const textBlockStopTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_stop", {
+        index: 2,
+        stop_timestamp: textBlockStopTimestamp,
+        type: "content_block_stop",
+      }),
+    )
+  ) return;
+
+  await sleep(120);
+
+  if (!sendCommonMessageTitleTitle(ctx)) return;
+
+  await sleep(80);
+
+  sendCommonMessageEnd(ctx);
+}
+
+async function generateMdResponse(ctx: GeneratorContext) {
+  if (!sendCommonMessageStart(ctx)) return;
+
+  await sleep(200);
+
+  const textBlockStartTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_start", {
+        content_block: {
+          citations: [],
+          flags: null,
+          start_timestamp: textBlockStartTimestamp,
+          stop_timestamp: null,
+          text: "",
+          type: "text",
+        },
+        index: 0,
+        type: "content_block_start",
+      }),
+    )
+  ) return;
+
+  const markdownContent = `
+# Markdown 语法演示 / Markdown Syntax Demo
+
+这是一个包含各种 Markdown 语法的演示文档。
+
+## 1. 文本格式 (Text Formatting)
+
+**加粗文本 (Bold)**
+*斜体文本 (Italic)*
+~~删除线 (Strikethrough)~~
+\`内联代码 (Inline code)\`
+
+## 2. 列表 (Lists)
+
+### 无序列表 (Unordered List)
+- 苹果 (Apple)
+- 香蕉 (Banana)
+  - 芭蕉 (Plantain)
+- 橘子 (Orange)
+
+### 有序列表 (Ordered List)
+1. 第一步 (Step 1)
+2. 第二步 (Step 2)
+3. 第三步 (Step 3)
+
+## 3. 代码块 (Code Blocks)
+
+\`\`\`typescript
+// TypeScript Example
+interface User {
+  id: number;
+  name: string;
+}
+
+function greet(user: User) {
+  console.log(\`Hello, \${user.name}!\`);
+}
+\`\`\`
+
+## 4. 表格 (Tables)
+
+| 姓名 (Name) | 年龄 (Age) | 职业 (Profession) |
+| :--- | :---: | ---: |
+| Alice | 24 | Engineer |
+| Bob | 30 | Designer |
+| Charlie | 28 | Manager |
+
+## 5. 引用 (Blockquotes)
+
+> 这是一个引用块。
+> It is a blockquote.
+>
+> 甚至可以包含多个段落。
+> > 以及嵌套引用。
+
+## 6. 链接与图片 (Links and Images)
+
+[OpenAI 官网](https://openai.com)
+
+![Placeholder Image](https://via.placeholder.com/150)
+
+## 7. 分割线 (Horizontal Rules)
+
+---
+
+希望这个演示对你有帮助！
+`;
+
+  // Stream text
+  for (const chunk of chunkText(markdownContent)) {
+    await sleep(20);
+    if (
+      !ctx.enqueue(
+        formatSseEvent("content_block_delta", {
+          delta: {
+            text: chunk,
+            type: "text_delta",
+          },
+          index: 0,
+          type: "content_block_delta",
+        }),
+      )
+    ) return;
+  }
+
+  await sleep(100);
+
+  const textBlockStopTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_stop", {
+        index: 0,
+        stop_timestamp: textBlockStopTimestamp,
+        type: "content_block_stop",
+      }),
+    )
+  ) return;
+
+  await sleep(100);
+
+  if (!sendCommonMessageTitleTitle(ctx, "Markdown 演示")) return;
+
+  await sleep(80);
+
+  sendCommonMessageEnd(ctx);
+}
+
+async function generateDefaultResponse(ctx: GeneratorContext) {
+  if (!sendCommonMessageStart(ctx)) return;
+
+  await sleep(200);
+
+  const textBlockStartTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_start", {
+        content_block: {
+          citations: [],
+          flags: null,
+          start_timestamp: textBlockStartTimestamp,
+          stop_timestamp: null,
+          text: "",
+          type: "text",
+        },
+        index: 0,
+        type: "content_block_start",
+      }),
+    )
+  ) return;
+
+  const textContent = "Hey! What's up?";
+
+  for (const chunk of chunkText(textContent)) {
+    await sleep(40);
+    if (
+      !ctx.enqueue(
+        formatSseEvent("content_block_delta", {
+          delta: {
+            text: chunk,
+            type: "text_delta",
+          },
+          index: 0,
+          type: "content_block_delta",
+        }),
+      )
+    ) return;
+  }
+
+  await sleep(100);
+
+  const textBlockStopTimestamp = getISOTimestamp();
+  if (
+    !ctx.enqueue(
+      formatSseEvent("content_block_stop", {
+        index: 0,
+        stop_timestamp: textBlockStopTimestamp,
+        type: "content_block_stop",
+      }),
+    )
+  ) return;
+
+  await sleep(50);
+
+  if (!sendCommonMessageTitleTitle(ctx, "Hey 招呼")) return;
+
+  await sleep(50);
+
+  sendCommonMessageEnd(ctx);
+}
+
 // Main background generator function
 export async function runBackgroundGeneration({
   assistantMessageUuid,
@@ -160,15 +664,6 @@ export async function runBackgroundGeneration({
     return;
   }
 
-  let textLength = 0;
-  const openCitations = new Map<
-    string,
-    {
-      citation: Omit<ChatCitation, "end_index" | "start_index">;
-      startIndex: number;
-    }
-  >();
-
   const enqueue = (chunk: string) => {
     if (isAborted(assistantMessageUuid)) return false;
     const match = chunk.match(/"type"\s*:\s*"([a-z_]+)"/);
@@ -176,326 +671,24 @@ export async function runBackgroundGeneration({
     return true;
   };
 
+  const context: GeneratorContext = {
+    assistantMessageUuid,
+    assistantTimestamp,
+    body,
+    assistantParentUuid,
+    toolUseId,
+    enqueue,
+  };
+
   try {
-    // Build mock data
-    const query = buildSearchQuery(body);
-    const searchResults = buildSearchResults(query);
-    const replySegments = buildMockReplySegments(body, query, searchResults);
-
-    // Send message_start
-    if (
-      !enqueue(
-        formatSseEvent("message_start", {
-          message: {
-            content: [],
-            created_at: assistantTimestamp,
-            id: `chatcompl_${assistantMessageUuid.replaceAll("-", "")}`,
-            model: body.model,
-            parent_uuid: assistantParentUuid,
-            role: "assistant",
-            stop_reason: null,
-            stop_sequence: null,
-            type: "message",
-            updated_at: assistantTimestamp,
-            uuid: assistantMessageUuid,
-          },
-          type: "message_start",
-        }),
-      )
-    ) {
-      return;
+    const prompt = (body.prompt || "").trim().toLowerCase();
+    if (prompt === "md") {
+      await generateMdResponse(context);
+    } else if (prompt === "tool") {
+      await generateToolResponse(context);
+    } else {
+      await generateDefaultResponse(context);
     }
-
-    await sleep(280);
-
-    // Tool use block
-    const toolUseStartTimestamp = getISOTimestamp();
-    if (
-      !enqueue(
-        formatSseEvent("content_block_start", {
-          content_block: {
-            display_content: null,
-            flags: null,
-            icon_name: "globe",
-            id: toolUseId,
-            input: null,
-            message: "Searching the web",
-            name: "web_search",
-            start_timestamp: toolUseStartTimestamp,
-            stop_timestamp: null,
-            type: "tool_use",
-          },
-          index: 0,
-          type: "content_block_start",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    for (const chunk of chunkJson(JSON.stringify({ query }))) {
-      await sleep(180);
-      if (
-        !enqueue(
-          formatSseEvent("content_block_delta", {
-            delta: {
-              partial_json: chunk,
-              type: "input_json_delta",
-            },
-            index: 0,
-            type: "content_block_delta",
-          }),
-        )
-      ) {
-        return;
-      }
-    }
-
-    await sleep(100);
-
-    // Keep emitting a full input snapshot in update for future consumers,
-    // even though the current UI relies on partial-json parsing from delta.
-    if (
-      !enqueue(
-        formatSseEvent("content_block_update", {
-          index: 0,
-          type: "content_block_update",
-          update: {
-            display_content: {
-              preview_url: "https://developers.openai.com/codex/pricing/",
-            },
-            input: { query },
-            message:
-              "Fetching: https://developers.openai.com/codex/pricing/",
-          },
-        }),
-      )
-    ) {
-      return;
-    }
-
-    await sleep(200);
-
-    // Stop tool_use block (index 0)
-    const toolUseStopTimestamp = getISOTimestamp();
-    if (
-      !enqueue(
-        formatSseEvent("content_block_stop", {
-          index: 0,
-          stop_timestamp: toolUseStopTimestamp,
-          type: "content_block_stop",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    await sleep(500);
-
-    // Tool result block
-    const toolResultStartTimestamp = getISOTimestamp();
-    const toolResultMessage = `Found ${searchResults.length} sources`;
-    if (
-      !enqueue(
-        formatSseEvent("content_block_start", {
-          content_block: {
-            display_content: null,
-            flags: null,
-            icon_name: "globe",
-            is_error: false,
-            message: toolResultMessage,
-            name: "web_search",
-            start_timestamp: toolResultStartTimestamp,
-            stop_timestamp: null,
-            tool_use_id: toolUseId,
-            type: "tool_result",
-          },
-          index: 1,
-          type: "content_block_start",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    // Tool result JSON
-    for (const chunk of chunkJson(JSON.stringify(searchResults))) {
-      await sleep(160);
-      if (
-        !enqueue(
-          formatSseEvent("content_block_delta", {
-            delta: {
-              partial_json: chunk,
-              type: "input_json_delta",
-            },
-            index: 1,
-            type: "content_block_delta",
-          }),
-        )
-      ) {
-        return;
-      }
-    }
-
-    await sleep(200);
-
-    // Stop tool_result block (index 1)
-    const toolResultStopTimestamp = getISOTimestamp();
-    if (
-      !enqueue(
-        formatSseEvent("content_block_stop", {
-          index: 1,
-          stop_timestamp: toolResultStopTimestamp,
-          type: "content_block_stop",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    await sleep(800);
-
-    // Text block
-    const textBlockStartTimestamp = getISOTimestamp();
-    if (
-      !enqueue(
-        formatSseEvent("content_block_start", {
-          content_block: {
-            citations: [],
-            flags: null,
-            start_timestamp: textBlockStartTimestamp,
-            stop_timestamp: null,
-            text: "",
-            type: "text",
-          },
-          index: 2,
-          type: "content_block_start",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    // Process reply segments
-    for (const segment of replySegments) {
-      if (segment.type === "citation_start") {
-        await sleep(70);
-        if (
-          !enqueue(
-            formatSseEvent("content_block_delta", {
-              delta: {
-                citation: segment.citation!,
-                type: "citation_start_delta",
-              },
-              index: 2,
-              type: "content_block_delta",
-            }),
-          )
-        ) {
-          return;
-        }
-        openCitations.set(segment.citation!.uuid, {
-          citation: segment.citation!,
-          startIndex: textLength,
-        });
-        continue;
-      }
-
-      if (segment.type === "citation_end") {
-        await sleep(70);
-        if (
-          !enqueue(
-            formatSseEvent("content_block_delta", {
-              delta: {
-                citation_uuid: segment.citationUuid!,
-                type: "citation_end_delta",
-              },
-              index: 2,
-              type: "content_block_delta",
-            }),
-          )
-        ) {
-          return;
-        }
-        openCitations.delete(segment.citationUuid!);
-        continue;
-      }
-
-      // Text chunks
-      for (const chunk of chunkText(segment.text || "")) {
-        await sleep(70);
-        if (
-          !enqueue(
-            formatSseEvent("content_block_delta", {
-              delta: {
-                text: chunk,
-                type: "text_delta",
-              },
-              index: 2,
-              type: "content_block_delta",
-            }),
-          )
-        ) {
-          return;
-        }
-        textLength += chunk.length;
-      }
-    }
-
-    await sleep(180);
-
-    // Stop text block
-    const textBlockStopTimestamp = getISOTimestamp();
-    if (
-      !enqueue(
-        formatSseEvent("content_block_stop", {
-          index: 2,
-          stop_timestamp: textBlockStopTimestamp,
-          type: "content_block_stop",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    await sleep(120);
-
-    // Send title event after content is fully streamed (not at the beginning)
-    const generatedTitle = `关于「${body.prompt.trim().slice(0, 20)}」的回复`;
-    if (
-      !enqueue(
-        formatSseEvent("title", {
-          title: generatedTitle,
-          type: "title",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    await sleep(80);
-
-    if (
-      !enqueue(
-        formatSseEvent("message_update", {
-          delta: {
-            stop_reason: "end_turn",
-            stop_sequence: null,
-          },
-          type: "message_update",
-        }),
-      )
-    ) {
-      return;
-    }
-
-    await sleep(40);
-
-    enqueue(
-      formatSseEvent("message_stop", {
-        type: "message_stop",
-      }),
-    );
   } catch (error) {
     console.error("Background generation error:", error);
   }

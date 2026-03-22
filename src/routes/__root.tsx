@@ -5,9 +5,14 @@ import {
   createRootRouteWithContext,
 } from '@tanstack/react-router'
 import { ConversationSidebar } from '#/features/chat/components'
+import { scan } from 'react-scan'
 import TanStackQueryProvider from '../integrations/tanstack-query/root-provider'
 import appCss from '../styles.css?url'
 import type { QueryClient } from '@tanstack/react-query'
+
+if (typeof window !== 'undefined') {
+  scan({ enabled: true })
+}
 
 interface MyRouterContext {
   queryClient: QueryClient

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { code } from "@streamdown/code";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
 
@@ -36,7 +37,7 @@ export function MarkdownText({
 					{children}
 				</a>
 			),
-			code: ({
+			inlineCode: ({
 				children,
 				className,
 				...props
@@ -66,14 +67,6 @@ export function MarkdownText({
 					{children}
 				</p>
 			),
-			pre: ({ children, ...props }: ComponentPropsWithoutRef<"pre">) => (
-				<pre
-					{...props}
-					className="overflow-x-auto rounded-2xl border border-line bg-[rgba(255,255,255,0.66)] p-3 text-sm leading-6 text-sea-ink"
-				>
-					{children}
-				</pre>
-			),
 			"cite-pill": (props: Record<string, unknown>) => {
 				const citationUuid = props.uuid;
 
@@ -91,6 +84,47 @@ export function MarkdownText({
 			},
 			strong: ({ children }: { children?: ReactNode }) => (
 				<strong className="font-semibold text-sea-ink">{children}</strong>
+			),
+			table: ({ children, ...props }: ComponentPropsWithoutRef<"table">) => (
+				<div className="my-4 overflow-x-auto">
+					<table
+						{...props}
+						className="w-full text-left border-collapse text-[0.95rem]"
+					>
+						{children}
+					</table>
+				</div>
+			),
+			tbody: ({ children, ...props }: ComponentPropsWithoutRef<"tbody">) => (
+				<tbody {...props} className="text-sea-ink">
+					{children}
+				</tbody>
+			),
+			td: ({ children, ...props }: ComponentPropsWithoutRef<"td">) => (
+				<td {...props} className="px-2 py-2.5 text-sea-ink">
+					{children}
+				</td>
+			),
+			th: ({ children, ...props }: ComponentPropsWithoutRef<"th">) => (
+				<th {...props} className="px-2 py-2.5 font-semibold text-sea-ink">
+					{children}
+				</th>
+			),
+			thead: ({ children, ...props }: ComponentPropsWithoutRef<"thead">) => (
+				<thead
+					{...props}
+					className="border-b border-line text-sea-ink font-semibold"
+				>
+					{children}
+				</thead>
+			),
+			tr: ({ children, ...props }: ComponentPropsWithoutRef<"tr">) => (
+				<tr
+					{...props}
+					className="border-b border-line/50 last:border-0 hover:bg-black/2 dark:hover:bg-white/2 transition-colors"
+				>
+					{children}
+				</tr>
 			),
 			ul: ({ children }: { children?: ReactNode }) => (
 				<ul className="my-0 list-disc pl-6 text-[0.95rem] leading-7 text-sea-ink">
@@ -113,6 +147,7 @@ export function MarkdownText({
 				components={components}
 				isAnimating={isStreaming}
 				mode={isStreaming ? "streaming" : "static"}
+				plugins={{ code }}
 			>
 				{renderedText}
 			</Streamdown>
