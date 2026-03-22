@@ -392,10 +392,8 @@ export const useConversationStore = create<ConversationStore>()(
         }
 
         const nextAssistantMessageUuid = generateTimeOrderedUuid();
-        const submittedAt = getISOTimestamp();
 
         withConversation(conversationId, (draftConversation) => {
-          draftConversation.domain.updated_at = submittedAt;
           draftConversation.runtime.errorMessage = null;
           draftConversation.runtime.status = "submitted";
         });

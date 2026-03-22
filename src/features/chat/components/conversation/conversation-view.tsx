@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { AlertCircle, MessageSquarePlus } from "lucide-react";
 import {
   useConversationErrorMessage,
@@ -10,13 +11,11 @@ import { AssistantMessageView } from "./assistant-message-view";
 import { useMessage } from "../../../conversation/hooks";
 import { useConversationStore } from "#/features/conversation/store/conversation-store";
 
-function MessageItem({
+const MessageItem = memo(function MessageItem({
   conversationId,
-  isBusy,
   messageUuid,
 }: {
   conversationId: string;
-  isBusy: boolean;
   messageUuid: string;
 }) {
   const message = useMessage(conversationId, messageUuid);
@@ -36,19 +35,17 @@ function MessageItem({
       {message.role === "user" ? (
         <UserMessageView
           conversationId={conversationId}
-          isBusy={isBusy}
           messageUuid={messageUuid}
         />
       ) : (
         <AssistantMessageView
           conversationId={conversationId}
-          isBusy={isBusy}
           messageUuid={messageUuid}
         />
       )}
     </article>
   );
-}
+});
 
 export function ConversationView({
   conversationId,
@@ -80,7 +77,6 @@ export function ConversationView({
             messageUuids.map((uuid) => (
               <MessageItem
                 conversationId={conversationId}
-                isBusy={isPending}
                 key={uuid}
                 messageUuid={uuid}
               />

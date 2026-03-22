@@ -122,8 +122,10 @@ export function createEmptyConversationDomain(
   timestamp: string,
 ): ConversationDomainState {
   return {
-    active_child_uuid_by_parent_uuid: {},
+    uuid: conversationId,
+    title: "",
     created_at: timestamp,
+    updated_at: timestamp,
     current_leaf_message_uuid: null,
     mapping: {
       [ROOT_PARENT_MESSAGE_UUID]: {
@@ -134,9 +136,7 @@ export function createEmptyConversationDomain(
       },
     },
     next_message_index: 0,
-    title: "",
-    updated_at: timestamp,
-    uuid: conversationId,
+    active_child_uuid_by_parent_uuid: {},
   };
 }
 

@@ -2,6 +2,7 @@ import { RotateCcw } from "lucide-react";
 import { useState } from "react";
 import {
   useConversationActions,
+  useConversationStatus,
   useIsStreamingMessage,
   useMessage,
   useSiblingUuids,
@@ -11,15 +12,15 @@ import { MessageContent } from "../message";
 
 interface AssistantMessageViewProps {
   conversationId: string;
-  isBusy: boolean;
   messageUuid: string;
 }
 
 export function AssistantMessageView({
   conversationId,
-  isBusy,
   messageUuid,
 }: AssistantMessageViewProps) {
+  const status = useConversationStatus(conversationId);
+  const isBusy = status === "streaming" || status === "submitted";
   const message = useMessage(conversationId, messageUuid);
   const siblingUuids = useSiblingUuids(conversationId, messageUuid);
   const isStreaming = useIsStreamingMessage(conversationId, messageUuid);

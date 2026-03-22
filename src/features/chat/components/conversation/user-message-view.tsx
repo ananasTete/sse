@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatContent } from "../../../conversation/models/message";
 import {
   useConversationActions,
+  useConversationStatus,
   useMessage,
   useSiblingUuids,
 } from "../../../conversation/hooks";
@@ -17,15 +18,15 @@ function getFirstTextContent(content: ChatContent[]): string {
 
 interface UserMessageViewProps {
   conversationId: string;
-  isBusy: boolean;
   messageUuid: string;
 }
 
 export function UserMessageView({
   conversationId,
-  isBusy,
   messageUuid,
 }: UserMessageViewProps) {
+  const status = useConversationStatus(conversationId);
+  const isBusy = status === "streaming" || status === "submitted";
   const message = useMessage(conversationId, messageUuid);
   const siblingUuids = useSiblingUuids(conversationId, messageUuid);
 
