@@ -4,7 +4,7 @@ import {
   createAssistantMessage,
   createContentBlock,
   createToolResultBlock,
-} from "../store/message-builders";
+} from "../core/message-builders";
 import type { ChatCitation } from "../models/message";
 import type {
   ChatCompletionContentBlockDeltaEvent,
@@ -18,7 +18,7 @@ import type {
   ChatCompletionSseEvent,
   ChatCompletionTitleEvent,
 } from "../models/events";
-import type { ConversationAction } from "../store/conversation-reducer";
+import type { ConversationAction } from "../core/conversation-reducer";
 
 export class StreamProtocolError extends Error {
   constructor(

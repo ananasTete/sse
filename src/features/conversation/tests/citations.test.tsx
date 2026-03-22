@@ -10,11 +10,12 @@ import {
 	createEmptyConversationDomain,
 	applyConversationAction,
 	type ConversationAction,
-} from '../store/conversation-reducer';
+} from '../core/conversation-reducer';
 import {
 	createInitialConversationRuntimeState,
-} from '../store/conversation-runtime';
-import { getMessageByUuid, selectCurrentBranchMessageUuids } from '../store/conversation-selectors';
+} from '../core/conversation-runtime';
+import { selectCurrentBranchMessageUuids } from '../core/conversation-selectors';
+import { getMessageByUuid } from '../core/conversation-store';
 import type { ChatCitation } from '../models/message';
 import type { ChatCompletionSseEvent } from '../models/events';
 import { MarkdownText } from "#/features/chat/components";

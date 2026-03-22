@@ -1,9 +1,9 @@
 import { useShallow } from "zustand/react/shallow";
+import { selectSiblingUuids } from "./conversation-selectors";
 import {
   getMessageByUuid,
-  selectSiblingUuids,
-} from "../store/conversation-selectors";
-import { useConversationStore } from "../store/conversation-store";
+  useConversationStore,
+} from "./conversation-store";
 
 const EMPTY_MESSAGE_UUIDS: string[] = [];
 

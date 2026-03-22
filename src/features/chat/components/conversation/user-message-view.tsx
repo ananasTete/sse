@@ -5,7 +5,7 @@ import {
   useConversationActions,
   useMessage,
   useSiblingUuids,
-} from "../../../conversation/hooks";
+} from "../../../conversation";
 import { BranchNavigator } from "./branch-navigator";
 
 function getFirstTextContent(content: ChatContent[]): string {

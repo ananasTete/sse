@@ -5,7 +5,7 @@ import {
   useIsStreamingMessage,
   useMessage,
   useSiblingUuids,
-} from "../../../conversation/hooks";
+} from "../../../conversation";
 import { BranchNavigator } from "./branch-navigator";
 import { MessageContent } from "../message";
 

@@ -6,8 +6,8 @@ import type { NewChatMessage } from "../models/message";
 import {
   createEmptyConversationDomain,
   applyConversationAction,
-} from "../store/conversation-reducer";
-import { selectCurrentBranchMessageUuids } from "../store/conversation-selectors";
+} from "../core/conversation-reducer";
+import { selectCurrentBranchMessageUuids } from "../core/conversation-selectors";
 
 function createMessage({
   parent_uuid,

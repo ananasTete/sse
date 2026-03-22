@@ -14,10 +14,6 @@ import {
   type ConversationRuntimeState,
 } from "./conversation-runtime";
 
-import {
-  findIncompleteStreamMessageUuid,
-  getMessageByUuid,
-} from "./conversation-selectors";
 import { createUserMessage } from "./message-builders";
 import { processChatCompletionStream } from "../streaming/completion-stream";
 import { getISOTimestamp } from "../utils/time";
@@ -34,6 +30,41 @@ import {
   getChatConversationCancelPath,
   updateChatConversationCurrentLeaf,
 } from "#/features/chat/api";
+
+// ==========================================
+// 内部工具函数
+// ==========================================
+
+// 获取某条消息（store action 和 hooks 共用）
+export function getMessageByUuid(
+  conversation: { domain: Pick<ConversationDomainState, "mapping"> },
+  messageUuid: string,
+) {
+  return conversation.domain.mapping[messageUuid]?.message ?? null;
+}
+
+// 查找未完成的流式消息（仅 hydrateConversation 内部使用）
+function findIncompleteStreamMessageUuid(
+  detail: Pick<ChatConversationDetail, "current_leaf_message_uuid" | "mapping">,
+): string | null {
+  const leafUuid = detail.current_leaf_message_uuid;
+
+  if (!leafUuid) {
+    return null;
+  }
+
+  const leafMessage = detail.mapping[leafUuid]?.message;
+
+  if (
+    leafMessage &&
+    leafMessage.role === "assistant" &&
+    leafMessage.stop_reason === null
+  ) {
+    return leafMessage.uuid;
+  }
+
+  return null;
+}
 
 export interface ConversationState {
   domain: ConversationDomainState;

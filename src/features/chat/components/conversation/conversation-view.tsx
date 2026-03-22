@@ -5,11 +5,11 @@ import {
   useConversationStatus,
   useCurrentBranchMessageUuids,
   useMessageRole,
-} from "../../../conversation/hooks";
+} from "../../../conversation";
 import { ConversationComposer } from "./conversation-composer";
 import { UserMessageView } from "./user-message-view";
 import { AssistantMessageView } from "./assistant-message-view";
-import { useConversationStore } from "#/features/conversation/store/conversation-store";
+import { useConversationStore } from "#/features/conversation/core/conversation-store";
 
 const MessageItem = memo(function MessageItem({
   conversationId,

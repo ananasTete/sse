@@ -7,11 +7,11 @@ import {
   fetchChatConversationDetail,
   upsertConversationListCache,
 } from "#/features/chat/api";
-import { useConversationStore } from "#/features/conversation/store/conversation-store";
+import { useConversationStore } from "#/features/conversation/core/conversation-store";
 import {
   useConversationSummary,
   useHasConversation,
-} from "#/features/conversation/hooks";
+} from "#/features/conversation";
 
 export const Route = createFileRoute("/chat/$conversationId")({
   component: ConversationPage,

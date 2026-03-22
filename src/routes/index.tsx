@@ -7,7 +7,7 @@ import {
   createChatConversation,
   upsertConversationListCache,
 } from "#/features/chat/api";
-import { useConversationStore } from "#/features/conversation/store/conversation-store";
+import { useConversationStore } from "#/features/conversation/core/conversation-store";
 
 export const Route = createFileRoute("/")({ component: LandingPage });
 
