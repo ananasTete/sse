@@ -2,11 +2,11 @@ import { useMemo } from "react";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
 
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import type { ChatCitation } from "#/features/conversation";
 import { cn } from "#/lib/utils";
 import { CitationPill } from "./citations/citation-pill";
-import { createCitationRemarkPlugin } from "./citations/citation-remark-plugin";
-import type { ChatCitation } from "#/features/conversation";
-import type { ReactNode, ComponentPropsWithoutRef } from "react";
+import { injectCitationPillsIntoMarkdown } from "./citations/citation-remark-plugin";
 
 interface MarkdownTextProps {
 	citations: ChatCitation[];
@@ -21,11 +21,6 @@ export function MarkdownText({
 }: MarkdownTextProps) {
 	const citationByUuid = useMemo(
 		() => new Map(citations.map((citation) => [citation.uuid, citation])),
-		[citations],
-	);
-
-	const remarkPlugins = useMemo(
-		() => [createCitationRemarkPlugin(citations)],
 		[citations],
 	);
 
@@ -79,13 +74,8 @@ export function MarkdownText({
 					{children}
 				</pre>
 			),
-			span: ({
-				children,
-				...props
-			}: ComponentPropsWithoutRef<"span">) => {
-				const citationUuid = (props as Record<string, unknown>)[
-					"data-citation-pill"
-				];
+			"cite-pill": (props: Record<string, unknown>) => {
+				const citationUuid = props.uuid;
 
 				if (typeof citationUuid === "string") {
 					const citation = citationByUuid.get(citationUuid);
@@ -97,12 +87,10 @@ export function MarkdownText({
 					return <CitationPill citation={citation} />;
 				}
 
-				return <span {...props}>{children}</span>;
+				return null;
 			},
 			strong: ({ children }: { children?: ReactNode }) => (
-				<strong className="font-semibold text-sea-ink">
-					{children}
-				</strong>
+				<strong className="font-semibold text-sea-ink">{children}</strong>
 			),
 			ul: ({ children }: { children?: ReactNode }) => (
 				<ul className="my-0 list-disc pl-6 text-[0.95rem] leading-7 text-sea-ink">
@@ -113,16 +101,18 @@ export function MarkdownText({
 		[citationByUuid],
 	);
 
-	const renderedText = text.trim() ? text : " ";
+	const renderedText = useMemo(() => {
+		const safeText = text.trim() ? text : " ";
+		return injectCitationPillsIntoMarkdown(safeText, citations);
+	}, [citations, text]);
 
 	return (
 		<div className="space-y-3">
 			<Streamdown
-				allowedTags={{ span: ["data-citation-pill"] }}
+				allowedTags={{ "cite-pill": ["uuid"] }}
 				components={components}
 				isAnimating={isStreaming}
 				mode={isStreaming ? "streaming" : "static"}
-				remarkPlugins={remarkPlugins}
 			>
 				{renderedText}
 			</Streamdown>

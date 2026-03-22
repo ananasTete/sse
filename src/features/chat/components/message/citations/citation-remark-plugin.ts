@@ -1,131 +1,50 @@
 import type { ChatCitation } from "#/features/conversation";
 
-interface MarkdownNode {
-  children?: MarkdownNode[];
-  data?: Record<string, unknown>;
-  position?: {
-    end?: {
-      offset?: number;
-    };
-    start?: {
-      offset?: number;
-    };
-  };
-  type: string;
-  value?: string;
+function escapeHtmlAttribute(value: string) {
+	return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
 }
 
-function getNodeOffsets(node: MarkdownNode) {
-  const start = node.position?.start?.offset;
-  const end = node.position?.end?.offset;
-
-  if (typeof start !== "number" || typeof end !== "number") {
-    return null;
-  }
-
-  return {
-    end,
-    start,
-  };
+function createCitationTag(uuid: string) {
+	return `<cite-pill uuid="${escapeHtmlAttribute(uuid)}"></cite-pill>`;
 }
 
-function createCitationHtmlNode(uuid: string): MarkdownNode {
-  return {
-    type: "citation",
-    data: {
-      hName: "span",
-      hProperties: {
-        "data-citation-pill": uuid,
-      },
-    },
-    children: [],
-  };
-}
+export function injectCitationPillsIntoMarkdown(
+	markdown: string,
+	citations: ChatCitation[],
+) {
+	if (citations.length === 0 || markdown.length === 0) {
+		return markdown;
+	}
 
-function cloneTextNode(node: MarkdownNode, value: string): MarkdownNode {
-  return {
-    ...node,
-    value,
-  };
-}
+	const markdownLength = markdown.length;
+	const sortedCitations = citations
+		.map((citation, index) => ({ citation, index }))
+		.sort((left, right) => {
+			if (left.citation.end_index !== right.citation.end_index) {
+				return right.citation.end_index - left.citation.end_index;
+			}
 
-function injectCitationPills(
-  node: MarkdownNode,
-  citations: ChatCitation[],
-  startIndex = 0,
-): number {
-  if (!Array.isArray(node.children) || node.children.length === 0) {
-    return startIndex;
-  }
+			return right.index - left.index;
+		});
 
-  const nextChildren: MarkdownNode[] = [];
-  let citationIndex = startIndex;
+	let nextMarkdown = markdown;
 
-  for (const child of node.children) {
-    citationIndex = injectCitationPills(child, citations, citationIndex);
+	for (const { citation } of sortedCitations) {
+		const endIndex = citation.end_index;
 
-    const bounds = getNodeOffsets(child);
+		if (
+			!Number.isInteger(endIndex) ||
+			endIndex < 0 ||
+			endIndex > markdownLength
+		) {
+			continue;
+		}
 
-    if (child.type === "text" && typeof child.value === "string" && bounds) {
-      let consumedOffset = bounds.start;
-      let consumedValueLength = 0;
+		nextMarkdown =
+			nextMarkdown.slice(0, endIndex) +
+			createCitationTag(citation.uuid) +
+			nextMarkdown.slice(endIndex);
+	}
 
-      while (citationIndex < citations.length) {
-        const citation = citations[citationIndex];
-
-        if (
-          citation.end_index <= consumedOffset ||
-          citation.end_index >= bounds.end
-        ) {
-          break;
-        }
-
-        const sliceEnd = citation.end_index - bounds.start;
-        const segmentValue = child.value.slice(consumedValueLength, sliceEnd);
-
-        if (segmentValue) {
-          nextChildren.push(cloneTextNode(child, segmentValue));
-        }
-
-        nextChildren.push(createCitationHtmlNode(citation.uuid));
-        consumedOffset = citation.end_index;
-        consumedValueLength = sliceEnd;
-        citationIndex += 1;
-      }
-
-      const trailingValue = child.value.slice(consumedValueLength);
-
-      if (trailingValue) {
-        nextChildren.push(cloneTextNode(child, trailingValue));
-      }
-    } else {
-      nextChildren.push(child);
-    }
-
-    while (citationIndex < citations.length && bounds) {
-      const citation = citations[citationIndex];
-
-      if (citation.end_index !== bounds.end) {
-        break;
-      }
-
-      nextChildren.push(createCitationHtmlNode(citation.uuid));
-      citationIndex += 1;
-    }
-  }
-
-  node.children = nextChildren;
-  return citationIndex;
-}
-
-export function createCitationRemarkPlugin(citations: ChatCitation[]) {
-  const sortedCitations = [...citations].sort(
-    (left, right) => left.end_index - right.end_index,
-  );
-
-  return () => {
-    return (tree: MarkdownNode) => {
-      injectCitationPills(tree, sortedCitations);
-    };
-  };
+	return nextMarkdown;
 }

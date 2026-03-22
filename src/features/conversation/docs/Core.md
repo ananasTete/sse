@@ -10,9 +10,7 @@
 
 ## SSE 方案
 
-### SSE 解析方案
-
-### SSE 规范制定
+详见 [Streaming.md](./Streaming.md)。
 
 ## conversation store 架构
 
@@ -122,16 +120,16 @@ UI 只订阅 conversation 中的数据，所以网络请求到的会话详情会
 - Streamdown 是专为 AI 流式场景设计的 Markdown 渲染器，内部做了 memoized rendering 和 LRU 缓存
 - 通过 `mode="streaming"` + `isAnimating` 区分流式和静态模式
 - 内置 `remend` 处理未闭合的 markdown 语法（如流式中的 `` `code ``、`**bold`）
-- 自定义 components 与 remarkPlugins API 与 react-markdown 一致，citation remark plugin 无需修改
+- Citation 使用 Streamdown 的 Custom HTML Tag 机制：通过 `allowedTags` 注册自定义 `<cite-pill>` 标签，在 `components` 中映射为 `CitationPill` 组件
 
 ```tsx
 <Streamdown
+  allowedTags={{ "cite-pill": ["uuid"] }}
   components={components}
   isAnimating={isStreaming}
   mode={isStreaming ? "streaming" : "static"}
-  remarkPlugins={remarkPlugins}
 >
-  {text}
+  {renderedText}
 </Streamdown>
 ```
 

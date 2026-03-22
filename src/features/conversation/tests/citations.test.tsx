@@ -1,24 +1,20 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-
-import { produce } from 'immer';
-import { processChatCompletionStream } from '../streaming/completion-stream';
-import { formatSseEvent } from '../streaming/sse-parser';
+import { injectCitationPillsIntoMarkdown } from "#/features/chat/components/message/citations/citation-remark-plugin";
 import {
-	createEmptyConversationDomain,
 	applyConversationAction,
 	type ConversationAction,
-} from '../core/conversation-reducer';
-import {
-	createInitialConversationRuntimeState,
-} from '../core/conversation-runtime';
-import { selectCurrentBranchMessageUuids } from '../core/conversation-selectors';
-import { getMessageByUuid } from '../core/conversation-store';
-import type { ChatCitation } from '../models/message';
-import type { ChatCompletionSseEvent } from '../models/events';
-import { MarkdownText } from "#/features/chat/components";
+	createEmptyConversationDomain,
+} from "../core/conversation-reducer";
+import { createInitialConversationRuntimeState } from "../core/conversation-runtime";
+import { selectCurrentBranchMessageUuids } from "../core/conversation-selectors";
+import { getMessageByUuid } from "../core/conversation-store";
+import type { ChatCompletionSseEvent } from "../models/events";
+import type { ChatCitation } from "../models/message";
+import { processChatCompletionStream } from "../streaming/completion-stream";
+import { formatSseEvent } from "../streaming/sse-parser";
 
 function createStreamingResponse(events: ChatCompletionSseEvent[]) {
 	const encoder = new TextEncoder();
@@ -156,12 +152,13 @@ describe("citation streaming", () => {
 		});
 
 		const finalDomain = actions.reduce(
-			(domain, action) => produce(domain, (draft) => {
-				applyConversationAction(draft, action);
-			}),
+			(domain, action) =>
+				produce(domain, (draft) => {
+					applyConversationAction(draft, action);
+				}),
 			createEmptyConversationDomain(
-				'conversation-1',
-				'2026-03-11T12:00:00.000Z',
+				"conversation-1",
+				"2026-03-11T12:00:00.000Z",
 			),
 		);
 		const finalState = {
@@ -232,7 +229,7 @@ describe("citation streaming", () => {
 				},
 				{
 					delta: {
-						partial_json: "{\"query\":\"Open",
+						partial_json: '{"query":"Open',
 						type: "input_json_delta",
 					},
 					index: 0,
@@ -240,7 +237,7 @@ describe("citation streaming", () => {
 				},
 				{
 					delta: {
-						partial_json: "AI Codex pricing 2026\"}",
+						partial_json: 'AI Codex pricing 2026"}',
 						type: "input_json_delta",
 					},
 					index: 0,
@@ -256,8 +253,7 @@ describe("citation streaming", () => {
 						input: {
 							query: "OpenAI Codex pricing 2026",
 						},
-						message:
-							"Fetching: https://developers.openai.com/codex/pricing/",
+						message: "Fetching: https://developers.openai.com/codex/pricing/",
 					},
 				},
 				{
@@ -279,9 +275,10 @@ describe("citation streaming", () => {
 		});
 
 		const finalDomain = actions.reduce(
-			(domain, action) => produce(domain, (draft) => {
-				applyConversationAction(draft, action);
-			}),
+			(domain, action) =>
+				produce(domain, (draft) => {
+					applyConversationAction(draft, action);
+				}),
 			createEmptyConversationDomain(
 				"conversation-2",
 				"2026-03-11T12:00:00.000Z",
@@ -311,91 +308,42 @@ describe("citation streaming", () => {
 });
 
 describe("citation markdown rendering", () => {
-	it("renders a citation pill after emphasized markdown text", () => {
-		render(
-			<MarkdownText
-				citations={[
-					{
-						end_index: 6,
-						metadata: {
-							favicon_url:
-								"https://www.google.com/s2/favicons?sz=64&domain=apidog.com",
-							site_domain: "apidog.com",
-							site_name: "Apidog",
-							type: "webpage_metadata",
-						},
-						origin_tool_name: "web_search",
-						sources: [
-							{
-								icon_url:
-									"https://www.google.com/s2/favicons?sz=64&domain=apidog.com",
-								source: "Apidog",
-								title:
-									"How Affordable Is GPT-5 Codex Pricing for Developers in 2026",
-								url: "https://apidog.com/blog/codex-pricing/",
-								uuid: "citation-source-1",
-							},
-						],
-						start_index: 0,
-						title:
-							"How Affordable Is GPT-5 Codex Pricing for Developers in 2026",
-						url: "https://apidog.com/blog/codex-pricing/",
-						uuid: "citation-1",
-					},
-				]}
-				text="**额度**"
-			/>,
-		);
-
-		expect(screen.getByText("额度")).toBeTruthy();
-
-		const citationLink = screen.getByRole("link", {
-			name: /Apidog/i,
-		});
-
-		expect(citationLink.getAttribute("href")).toBe(
-			"https://apidog.com/blog/codex-pricing/",
-		);
+	it("injects citation tags into markdown source using raw offsets", () => {
+		expect(
+			injectCitationPillsIntoMarkdown("**额度**", [
+				{
+					end_index: 6,
+					metadata: null,
+					origin_tool_name: "web_search",
+					sources: [],
+					start_index: 0,
+					title: null,
+					url: null,
+					uuid: "citation-1",
+				},
+			]),
+		).toBe('**额度**<cite-pill uuid="citation-1"></cite-pill>');
 	});
 
-	it("renders unordered list items after a cited paragraph", () => {
-		render(
-			<MarkdownText
-				citations={[
+	it("keeps block markdown intact after injecting a cited paragraph", () => {
+		expect(
+			injectCitationPillsIntoMarkdown(
+				"引用文本。\n\n- first item\n- second item\n- third item",
+				[
 					{
-						end_index: 4,
-						metadata: {
-							favicon_url:
-								"https://www.google.com/s2/favicons?sz=64&domain=apidog.com",
-							site_domain: "apidog.com",
-							site_name: "Apidog",
-							type: "webpage_metadata",
-						},
+						end_index: 5,
+						metadata: null,
 						origin_tool_name: "web_search",
-						sources: [
-							{
-								icon_url:
-									"https://www.google.com/s2/favicons?sz=64&domain=apidog.com",
-								source: "Apidog",
-								title:
-									"How Affordable Is GPT-5 Codex Pricing for Developers in 2026",
-								url: "https://apidog.com/blog/codex-pricing/",
-								uuid: "citation-source-1",
-							},
-						],
+						sources: [],
 						start_index: 0,
-						title:
-							"How Affordable Is GPT-5 Codex Pricing for Developers in 2026",
-						url: "https://apidog.com/blog/codex-pricing/",
+						title: null,
+						url: null,
 						uuid: "citation-1",
 					},
-				]}
-				text={"引用文本。\n\n- first item\n- second item\n- third item"}
-			/>,
+				],
+			),
+		).toBe(
+			'引用文本。<cite-pill uuid="citation-1"></cite-pill>\n\n- first item\n- second item\n- third item',
 		);
-
-		expect(screen.getByText("first item")).toBeTruthy();
-		expect(screen.getByText("second item")).toBeTruthy();
-		expect(screen.getByText("third item")).toBeTruthy();
 	});
 });
