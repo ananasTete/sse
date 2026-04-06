@@ -1,58 +1,58 @@
-import type { ChatContent } from '../../models/chat';
-import { MarkdownText } from './markdown-text';
-import { ToolCallBlock } from './tool-calls/tool-call-block';
+import type { ChatContent } from "#/features/conversation";
+import { MarkdownText } from "./markdown-text";
+import { ToolCallBlock } from "./tool-calls/tool-call-block";
 
 interface MessageContentProps {
-	blocks: ChatContent[];
-	expandedToolBlocks: Record<string, boolean>;
-	isStreamingMessage: boolean;
-	onToggleToolBlock: (toolUseId: string) => void;
+  blocks: ChatContent[];
+  expandedToolBlocks: Record<string, boolean>;
+  isStreamingMessage: boolean;
+  onToggleToolBlock: (toolUseId: string) => void;
 }
 
 export function MessageContent({
-	blocks,
-	expandedToolBlocks,
-	isStreamingMessage,
-	onToggleToolBlock,
+  blocks,
+  expandedToolBlocks,
+  isStreamingMessage,
+  onToggleToolBlock,
 }: MessageContentProps) {
-	const safeBlocks = blocks.filter(
-		(block): block is ChatContent => block != null,
-	);
+  const safeBlocks = blocks.filter(
+    (block): block is ChatContent => block != null,
+  );
 
-	return (
-		<div className="space-y-3">
-			{safeBlocks.map((block, index) => {
-				if (block.type === "text") {
-					const showCursor =
-						isStreamingMessage && block.stop_timestamp === null;
+  return (
+    <div className="space-y-3">
+      {safeBlocks.map((block, index) => {
+        if (block.type === "text") {
+          const showCursor =
+            isStreamingMessage && block.stop_timestamp === null;
 
-					return (
-						<MarkdownText
-							citations={block.citations}
-							isStreaming={showCursor}
-							key={`${block.type}-${block.start_timestamp}-${index}`}
-							text={block.text}
-						/>
-					);
-				}
+          return (
+            <MarkdownText
+              citations={block.citations}
+              isStreaming={showCursor}
+              key={`${block.type}-${block.start_timestamp}-${index}`}
+              text={block.text}
+            />
+          );
+        }
 
-				const isExpanded =
-					expandedToolBlocks[block.id] ?? Boolean(block.tool_result?.is_error);
-				const blockIsStreaming =
-					isStreamingMessage && block.stop_timestamp === null;
+        const isExpanded =
+          expandedToolBlocks[block.id] ?? Boolean(block.tool_result?.is_error);
+        const blockIsStreaming =
+          isStreamingMessage && block.stop_timestamp === null;
 
-				return (
-					<ToolCallBlock
-						block={block}
-						expanded={isExpanded}
-						isStreaming={blockIsStreaming}
-						key={block.id}
-						onToggle={() => {
-							onToggleToolBlock(block.id);
-						}}
-					/>
-				);
-			})}
-		</div>
-	);
+        return (
+          <ToolCallBlock
+            block={block}
+            expanded={isExpanded}
+            isStreaming={blockIsStreaming}
+            key={block.id}
+            onToggle={() => {
+              onToggleToolBlock(block.id);
+            }}
+          />
+        );
+      })}
+    </div>
+  );
 }
